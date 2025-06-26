@@ -69,3 +69,27 @@ export interface ScrollOptions {
   limit?: number;
   mode?: 'smart' | 'entities' | 'relationships' | 'raw';
 }
+
+export interface StreamingGraphResponse {
+  content: SmartGraph | KnowledgeGraph;
+  meta: {
+    tokenCount: number;
+    tokenLimit: number;
+    truncated: boolean;
+    truncationReason?: string;
+    sectionsIncluded: string[];
+  };
+}
+
+export interface TokenBudget {
+  total: number;
+  used: number;
+  remaining: number;
+}
+
+export interface ContentSection {
+  name: string;
+  content: any;
+  tokenCount: number;
+  priority: number;
+}

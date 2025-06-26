@@ -13,7 +13,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { QdrantPersistence } from './persistence/qdrant.js';
-import { Entity, Relation, KnowledgeGraph, SmartGraph, ScrollOptions } from './types.js';
+import { Entity, Relation, KnowledgeGraph, SmartGraph, ScrollOptions, StreamingGraphResponse } from './types.js';
+import { streamingResponseBuilder } from './streamingResponseBuilder.js';
 import { COLLECTION_NAME } from './config.js';
 import {
   validateCreateEntitiesRequest,
@@ -153,6 +154,21 @@ class KnowledgeGraphManager {
     } catch (error) {
       console.error('Failed to read from Qdrant, falling back to JSON:', error);
       // Fallback to basic JSON graph for compatibility
+      return this.graph;
+    }
+  }
+
+  async getRawGraph(): Promise<KnowledgeGraph> {
+    try {
+      // Get raw entities and relations from Qdrant without any processing
+      const rawData = await this.qdrant.scrollAll({ mode: 'raw' });
+      if ('entities' in rawData && 'relations' in rawData) {
+        return rawData as KnowledgeGraph;
+      }
+      // If it's not a KnowledgeGraph (e.g., SmartGraph), return empty
+      return { entities: [], relations: [] };
+    } catch (error) {
+      console.error('Failed to read raw graph from Qdrant, falling back to JSON:', error);
       return this.graph;
     }
   }
@@ -442,12 +458,23 @@ class MemoryServer {
               limit
             };
             
-            const graph = await this.graphManager.getGraph(options);
+            // Get raw entities and relations from Qdrant for streaming response
+            const rawGraph = await this.graphManager.getRawGraph();
+            const streamingResponse = await streamingResponseBuilder.buildStreamingResponse(
+              rawGraph.entities,
+              rawGraph.relations,
+              options
+            );
+            
+            // Format response compactly to respect token limits (no pretty-printing)
+            const responseText = JSON.stringify(streamingResponse.content);
+            const metaText = `\n\n<!-- Response Metadata:\nTokens: ${streamingResponse.meta.tokenCount}/${streamingResponse.meta.tokenLimit}\nTruncated: ${streamingResponse.meta.truncated}\nSections: ${streamingResponse.meta.sectionsIncluded.join(', ')}\n${streamingResponse.meta.truncationReason ? `Reason: ${streamingResponse.meta.truncationReason}\n` : ''}-->`;
+            
             return {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(graph, null, 2),
+                  text: responseText + metaText,
                 },
               ],
             };

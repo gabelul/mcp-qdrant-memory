@@ -353,21 +353,9 @@ export class QdrantPersistence {
       filteredEntities = filteredEntities.filter(e => entityTypeFilter.includes(e.entityType));
     }
 
-    // Handle different modes
-    switch (mode) {
-      case 'raw':
-        return { entities: filteredEntities, relations: filteredRelations };
-      
-      case 'entities':
-        return this._buildEntitiesResponse(filteredEntities, filteredRelations, limitPerType);
-      
-      case 'relationships':
-        return this._buildRelationshipsResponse(filteredEntities, filteredRelations);
-      
-      case 'smart':
-      default:
-        return this._buildSmartResponse(filteredEntities, filteredRelations, limitPerType);
-    }
+    // All modes now return raw data for streaming processing
+    // The streaming response builder handles mode-specific formatting with token limits
+    return { entities: filteredEntities, relations: filteredRelations };
   }
 
   private async _getRawData(): Promise<{ entities: Entity[], relations: Relation[] }> {
