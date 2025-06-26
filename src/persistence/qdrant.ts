@@ -17,7 +17,7 @@ class CustomQdrantClient extends QdrantClient {
       url: `${parsed.protocol}//${parsed.hostname}`,
       port: parsed.port ? parseInt(parsed.port) : 6333,
       https: parsed.protocol === 'https:',
-      apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.x6NrWBMMtPqcep5dNxOqjXT42sQhATAMdxEqVFDJKew',
+      apiKey: QDRANT_API_KEY,
       timeout: 60000,
       checkCompatibility: false
     });

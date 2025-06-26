@@ -14,6 +14,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { QdrantPersistence } from './persistence/qdrant.js';
 import { Entity, Relation, KnowledgeGraph } from './types.js';
+import { COLLECTION_NAME } from './config.js';
 import {
   validateCreateEntitiesRequest,
   validateCreateRelationsRequest,
@@ -26,7 +27,7 @@ import {
 
 // Define paths
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MEMORY_FILE_PATH = path.join(__dirname, 'memory.json');
+const MEMORY_FILE_PATH = path.join(__dirname, `${COLLECTION_NAME}-memory.json`);
 
 class KnowledgeGraphManager {
   private graph: KnowledgeGraph;
