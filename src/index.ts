@@ -13,7 +13,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { QdrantPersistence } from './persistence/qdrant.js';
-import { Entity, Relation, KnowledgeGraph } from './types.js';
+import { Entity, Relation, KnowledgeGraph, SmartGraph, ScrollOptions } from './types.js';
 import { COLLECTION_NAME } from './config.js';
 import {
   validateCreateEntitiesRequest,
@@ -147,8 +147,14 @@ class KnowledgeGraphManager {
     await this.save();
   }
 
-  getGraph(): KnowledgeGraph {
-    return this.graph;
+  async getGraph(options?: ScrollOptions): Promise<KnowledgeGraph | SmartGraph> {
+    try {
+      return await this.qdrant.scrollAll(options);
+    } catch (error) {
+      console.error('Failed to read from Qdrant, falling back to JSON:', error);
+      // Fallback to basic JSON graph for compatibility
+      return this.graph;
+    }
   }
 
   async searchSimilar(query: string, limit: number = 10): Promise<Array<Entity | Relation>> {
@@ -322,10 +328,27 @@ class MemoryServer {
         },
         {
           name: "read_graph",
-          description: "Read the entire knowledge graph",
+          description: "Read filtered knowledge graph with smart summarization",
           inputSchema: {
             type: "object",
-            properties: {}
+            properties: {
+              mode: {
+                type: "string",
+                enum: ["smart", "entities", "relationships", "raw"],
+                description: "smart: AI-optimized view (default), entities: filtered entities, relationships: connection focus, raw: full graph (may exceed limits)",
+                default: "smart"
+              },
+              entityTypes: {
+                type: "array",
+                items: { type: "string" },
+                description: "Filter specific entity types (e.g., ['class', 'function'])"
+              },
+              limit: {
+                type: "number",
+                description: "Max entities per type (default: 50)",
+                default: 50
+              }
+            }
           }
         },
         {
@@ -408,15 +431,27 @@ class MemoryServer {
             };
           }
 
-          case "read_graph":
+          case "read_graph": {
+            const mode = (request.params.arguments?.mode as 'smart' | 'entities' | 'relationships' | 'raw') || 'smart';
+            const entityTypes = request.params.arguments?.entityTypes as string[] | undefined;
+            const limit = (request.params.arguments?.limit as number) || 50;
+            
+            const options: ScrollOptions = {
+              mode,
+              entityTypes,
+              limit
+            };
+            
+            const graph = await this.graphManager.getGraph(options);
             return {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(this.graphManager.getGraph(), null, 2),
+                  text: JSON.stringify(graph, null, 2),
                 },
               ],
             };
+          }
 
           case "search_similar": {
             const args = validateSearchSimilarRequest(request.params.arguments);

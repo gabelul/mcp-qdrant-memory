@@ -1,16 +1,27 @@
-# MCP Memory Server with Qdrant Persistence
+# MCP Memory Server with Qdrant Persistence (Enhanced for Claude Code)
 [![smithery badge](https://smithery.ai/badge/@delorenj/mcp-qdrant-memory)](https://smithery.ai/server/@delorenj/mcp-qdrant-memory)
 
-This MCP server provides a knowledge graph implementation with semantic search capabilities powered by Qdrant vector database.
+This MCP server provides a knowledge graph implementation with semantic search capabilities powered by Qdrant vector database. **Enhanced version** with direct Qdrant integration for Claude Code memory solution.
+
+## ✨ Latest Enhancements
+
+- **🎯 Smart Filtering**: read_graph now provides intelligent, token-limited responses
+- **🔧 Multiple Modes**: smart/entities/relationships/raw modes for different use cases
+- **⚡ Priority Scoring**: Surfaces most important code first (public APIs, documented code)
+- **📊 Structured Responses**: Summary, API surface, dependencies, and file structure
+- **🛡️ Token Management**: Smart mode guarantees <25k tokens vs previous 393k overflow
+- **🔄 Direct Qdrant Integration**: Works seamlessly with claude-indexer direct writes
+- **📈 Large Collection Support**: Handles 2000+ vectors efficiently via scroll API
 
 ## Features
 
 - Graph-based knowledge representation with entities and relations
-- File-based persistence (memory.json)
+- **Dual persistence**: Qdrant vector database + JSON file fallback
 - Semantic search using Qdrant vector database
 - OpenAI embeddings for semantic similarity
 - HTTPS support with reverse proxy compatibility
 - Docker support for easy deployment
+- **Enhanced read_graph**: Direct database reads with automatic fallback
 
 ## Environment Variables
 
@@ -99,7 +110,7 @@ docker run -d \
 - `delete_entities`: Delete entities and their relations
 - `delete_observations`: Delete specific observations
 - `delete_relations`: Delete specific relations
-- `read_graph`: Get the full knowledge graph
+- `read_graph`: **Enhanced** - Get smart, filtered knowledge graph with token limits
 
 ### Semantic Search
 - `search_similar`: Search for semantically similar entities and relations
@@ -112,24 +123,31 @@ docker run -d \
 
 ## Implementation Details
 
-The server maintains two forms of persistence:
+The server maintains enhanced dual storage with Qdrant as primary:
 
-1. File-based (memory.json):
-   - Complete knowledge graph structure
-   - Fast access to full graph
-   - Used for graph operations
-
-2. Qdrant Vector DB:
+1. **Qdrant Vector DB (Primary)**:
    - Semantic embeddings of entities and relations
-   - Enables similarity search
-   - Automatically synchronized with file storage
+   - Complete knowledge graph storage
+   - **Enhanced read_graph**: Direct database reads via scroll API
+   - Handles large collections (2000+ vectors) efficiently
 
-### Synchronization
+2. **File-based (memory.json - Fallback)**:
+   - Local knowledge graph cache
+   - Fast fallback when Qdrant unavailable
+   - Maintains backward compatibility
 
-When entities or relations are modified:
-1. Changes are written to memory.json
-2. Embeddings are generated using OpenAI
-3. Vectors are stored in Qdrant
+### ✨ Enhanced Synchronization
+
+**Direct Qdrant Mode** (claude-indexer integration):
+1. Entities written directly to Qdrant
+2. **read_graph** reads from Qdrant database
+3. JSON file may be empty (fallback only)
+4. Supports large-scale knowledge graphs
+
+**Traditional MCP Mode**:
+1. Changes written to memory.json
+2. Embeddings generated using OpenAI
+3. Vectors stored in Qdrant
 4. Both storage systems remain consistent
 
 ### Search Process
@@ -143,6 +161,20 @@ When searching:
 ## Example Usage
 
 ```typescript
+// Enhanced read_graph with smart filtering (NEW)
+const smartGraph = await client.callTool("read_graph", {
+  mode: "smart",           // AI-optimized view (default)
+  limit: 20               // Max entities per type
+});
+// Returns: structured summary, API surface, dependencies under 25k tokens
+
+// Entity type filtering
+const classes = await client.callTool("read_graph", {
+  mode: "entities",
+  entityTypes: ["class", "function"],
+  limit: 10
+});
+
 // Create entities
 await client.callTool("create_entities", {
   entities: [{
@@ -158,6 +190,53 @@ const results = await client.callTool("search_similar", {
   limit: 5
 });
 ```
+
+### 🎯 Smart Mode Features
+
+The enhanced `read_graph` with `mode: "smart"` provides:
+
+```typescript
+interface SmartGraphResponse {
+  summary: {
+    totalEntities: number;
+    totalRelations: number;
+    breakdown: Record<string, number>; // Entity type counts
+    keyModules: string[];              // Top-level packages/modules
+    timestamp: string;
+  };
+  apiSurface: {
+    classes: Array<{
+      name: string;
+      file: string;
+      line: number;
+      docstring?: string;
+      methods: string[];
+      inherits?: string[];
+    }>;
+    functions: Array<{
+      name: string;
+      file: string;
+      line: number;
+      signature?: string;
+      docstring?: string;
+    }>;
+  };
+  dependencies: {
+    external: string[];                // External packages
+    internal: Array<{from: string, to: string}>; // Key internal deps
+  };
+  relations: {
+    inheritance: Array<{from: string, to: string}>;
+    keyUsages: Array<{from: string, to: string, type: string}>;
+  };
+}
+```
+
+**Benefits:**
+- ✅ **Token Compliant**: Always <25k tokens (vs 393k raw)
+- ✅ **Prioritized Content**: Public APIs and documented code first  
+- ✅ **Structured Insights**: Summary, dependencies, relationships
+- ✅ **Performance**: Sub-second response times with large collections
 
 ## HTTPS and Reverse Proxy Configuration
 

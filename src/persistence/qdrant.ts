@@ -7,7 +7,7 @@ import {
   OPENAI_API_KEY,
   QDRANT_API_KEY
 } from "../config.js";
-import { Entity, Relation } from "../types.js";
+import { Entity, Relation, SmartGraph, ScrollOptions, KnowledgeGraph } from "../types.js";
 
 // Create custom Qdrant client that adds auth header
 class CustomQdrantClient extends QdrantClient {
@@ -330,5 +330,301 @@ export class QdrantPersistence {
     await this.client.delete(COLLECTION_NAME, {
       points: [id],
     });
+  }
+
+  async scrollAll(options?: ScrollOptions): Promise<KnowledgeGraph | SmartGraph> {
+    await this.connect();
+    if (!COLLECTION_NAME) {
+      throw new Error("COLLECTION_NAME environment variable is required");
+    }
+
+    const mode = options?.mode || 'smart';
+    const entityTypeFilter = options?.entityTypes;
+    const limitPerType = options?.limit || 50;
+
+    // First, get raw data from Qdrant
+    const rawData = await this._getRawData();
+
+    // Apply filtering
+    let filteredEntities = rawData.entities;
+    let filteredRelations = rawData.relations;
+
+    if (entityTypeFilter && entityTypeFilter.length > 0) {
+      filteredEntities = filteredEntities.filter(e => entityTypeFilter.includes(e.entityType));
+    }
+
+    // Handle different modes
+    switch (mode) {
+      case 'raw':
+        return { entities: filteredEntities, relations: filteredRelations };
+      
+      case 'entities':
+        return this._buildEntitiesResponse(filteredEntities, filteredRelations, limitPerType);
+      
+      case 'relationships':
+        return this._buildRelationshipsResponse(filteredEntities, filteredRelations);
+      
+      case 'smart':
+      default:
+        return this._buildSmartResponse(filteredEntities, filteredRelations, limitPerType);
+    }
+  }
+
+  private async _getRawData(): Promise<{ entities: Entity[], relations: Relation[] }> {
+    const entities: Entity[] = [];
+    const relations: Relation[] = [];
+    let offset: string | number | undefined = undefined;
+    const batchSize = 100;
+
+    do {
+      const scrollResult = await this.client.scroll(COLLECTION_NAME!, {
+        limit: batchSize,
+        offset,
+        with_payload: true,
+        with_vector: false,
+      });
+
+      for (const point of scrollResult.points) {
+        if (!point.payload) continue;
+        const payload = point.payload as unknown as Payload;
+
+        if (isEntity(payload)) {
+          const { type, ...entity } = payload;
+          entities.push(entity);
+        } else if (isRelation(payload)) {
+          const { type, ...relation } = payload;
+          relations.push(relation);
+        }
+      }
+
+      offset = (typeof scrollResult.next_page_offset === 'string' || typeof scrollResult.next_page_offset === 'number') 
+        ? scrollResult.next_page_offset 
+        : undefined;
+    } while (offset !== null && offset !== undefined);
+
+    return { entities, relations };
+  }
+
+  private _buildEntitiesResponse(entities: Entity[], relations: Relation[], limitPerType: number): KnowledgeGraph {
+    // Group entities by type and apply limits
+    const entityByType: Record<string, Entity[]> = {};
+    
+    entities.forEach(entity => {
+      if (!entityByType[entity.entityType]) {
+        entityByType[entity.entityType] = [];
+      }
+      entityByType[entity.entityType].push(entity);
+    });
+
+    // Apply priority scoring and limits
+    const limitedEntities: Entity[] = [];
+    Object.entries(entityByType).forEach(([type, typeEntities]) => {
+      const prioritized = this._prioritizeEntities(typeEntities);
+      limitedEntities.push(...prioritized.slice(0, limitPerType));
+    });
+
+    return { entities: limitedEntities, relations };
+  }
+
+  private _buildRelationshipsResponse(entities: Entity[], relations: Relation[]): KnowledgeGraph {
+    // Focus on key relationship types
+    const keyRelationTypes = ['inherits', 'implements', 'contains', 'imports', 'calls'];
+    const keyRelations = relations.filter(r => keyRelationTypes.includes(r.relationType));
+    
+    // Include entities that participate in key relationships
+    const participatingEntityNames = new Set<string>();
+    keyRelations.forEach(r => {
+      participatingEntityNames.add(r.from);
+      participatingEntityNames.add(r.to);
+    });
+
+    const participatingEntities = entities.filter(e => participatingEntityNames.has(e.name));
+
+    return { entities: participatingEntities, relations: keyRelations };
+  }
+
+  private _buildSmartResponse(entities: Entity[], relations: Relation[], limitPerType: number): SmartGraph {
+    // Build comprehensive smart response
+    const breakdown: Record<string, number> = {};
+    entities.forEach(e => {
+      breakdown[e.entityType] = (breakdown[e.entityType] || 0) + 1;
+    });
+
+    // Get key modules from file paths
+    const keyModules = this._extractKeyModules(entities);
+
+    // Build file structure
+    const structure = this._buildFileStructure(entities);
+
+    // Extract API surface (prioritized public functions and classes)
+    const apiSurface = this._extractApiSurface(entities, relations, limitPerType);
+
+    // Analyze dependencies
+    const dependencies = this._analyzeDependencies(entities, relations);
+
+    // Extract key relationships
+    const keyRelations = this._extractKeyRelations(relations);
+
+    return {
+      summary: {
+        totalEntities: entities.length,
+        totalRelations: relations.length,
+        breakdown,
+        keyModules,
+        timestamp: new Date().toISOString()
+      },
+      structure,
+      apiSurface,
+      dependencies,
+      relations: keyRelations
+    };
+  }
+
+  private _prioritizeEntities(entities: Entity[]): Entity[] {
+    return entities.sort((a, b) => {
+      let scoreA = 0;
+      let scoreB = 0;
+
+      // Public API bonus (not starting with underscore)
+      if (!a.name.startsWith('_')) scoreA += 5;
+      if (!b.name.startsWith('_')) scoreB += 5;
+
+      // Has documentation bonus
+      const aHasDoc = a.observations.some(obs => obs.includes('docstring') || obs.includes('Description'));
+      const bHasDoc = b.observations.some(obs => obs.includes('docstring') || obs.includes('Description'));
+      if (aHasDoc) scoreA += 10;
+      if (bHasDoc) scoreB += 10;
+
+      // Special method bonus (__init__, __new__)
+      if (['__init__', '__new__'].includes(a.name)) scoreA += 8;
+      if (['__init__', '__new__'].includes(b.name)) scoreB += 8;
+
+      return scoreB - scoreA;
+    });
+  }
+
+  private _extractKeyModules(entities: Entity[]): string[] {
+    const modules = new Set<string>();
+    entities.forEach(entity => {
+      const obs = entity.observations.find(o => o.includes('Defined in:') || o.includes('file_path'));
+      if (obs) {
+        const pathMatch = obs.match(/[\/\\]([^\/\\]+)[\/\\][^\/\\]+\.py/);
+        if (pathMatch) {
+          modules.add(pathMatch[1]);
+        }
+      }
+    });
+    return Array.from(modules).slice(0, 10); // Top 10 modules
+  }
+
+  private _buildFileStructure(entities: Entity[]): Record<string, any> {
+    const structure: Record<string, any> = {};
+    
+    entities.forEach(entity => {
+      if (entity.entityType === 'file' || entity.entityType === 'directory') {
+        const pathObs = entity.observations.find(o => o.includes('file_path') || o.includes('Defined in:'));
+        if (pathObs) {
+          const path = entity.name;
+          const entityCount = entities.filter(e => 
+            e.observations.some(obs => obs.includes(path))
+          ).length;
+
+          structure[path] = {
+            type: entity.entityType as 'file' | 'directory',
+            entities: entityCount
+          };
+        }
+      }
+    });
+
+    return structure;
+  }
+
+  private _extractApiSurface(entities: Entity[], relations: Relation[], limit: number) {
+    const classes = entities
+      .filter(e => e.entityType === 'class' && !e.name.startsWith('_'))
+      .slice(0, limit)
+      .map(cls => {
+        const fileObs = cls.observations.find(o => o.includes('Defined in:'));
+        const lineObs = cls.observations.find(o => o.includes('Line:'));
+        const docObs = cls.observations.find(o => o.includes('docstring') || o.includes('Description'));
+        
+        // Find methods of this class
+        const methods = entities
+          .filter(e => e.entityType === 'method' || e.entityType === 'function')
+          .filter(e => e.observations.some(obs => obs.includes(cls.name)))
+          .map(m => m.name)
+          .slice(0, 10); // Limit methods shown
+
+        // Find inheritance
+        const inherits = relations
+          .filter(r => r.relationType === 'inherits' && r.from === cls.name)
+          .map(r => r.to);
+
+        return {
+          name: cls.name,
+          file: fileObs ? fileObs.replace('Defined in:', '').trim() : '',
+          line: lineObs ? parseInt(lineObs.replace('Line:', '').trim()) : 0,
+          docstring: docObs ? docObs.replace(/.*docstring[:\s]*/, '').trim() : undefined,
+          methods,
+          inherits: inherits.length > 0 ? inherits : undefined
+        };
+      });
+
+    const functions = entities
+      .filter(e => (e.entityType === 'function' || e.entityType === 'method') && !e.name.startsWith('_'))
+      .slice(0, limit)
+      .map(fn => {
+        const fileObs = fn.observations.find(o => o.includes('Defined in:'));
+        const lineObs = fn.observations.find(o => o.includes('Line:'));
+        const sigObs = fn.observations.find(o => o.includes('Signature:') || o.includes('('));
+        const docObs = fn.observations.find(o => o.includes('docstring') || o.includes('Description'));
+
+        return {
+          name: fn.name,
+          file: fileObs ? fileObs.replace('Defined in:', '').trim() : '',
+          line: lineObs ? parseInt(lineObs.replace('Line:', '').trim()) : 0,
+          signature: sigObs ? sigObs.trim() : undefined,
+          docstring: docObs ? docObs.replace(/.*docstring[:\s]*/, '').trim() : undefined
+        };
+      });
+
+    return { classes, functions };
+  }
+
+  private _analyzeDependencies(entities: Entity[], relations: Relation[]) {
+    const importRelations = relations.filter(r => r.relationType === 'imports');
+    
+    // External dependencies (likely packages)
+    const external = new Set<string>();
+    importRelations.forEach(rel => {
+      if (!rel.to.includes('/') && !rel.to.includes('.py')) {
+        external.add(rel.to);
+      }
+    });
+
+    // Internal dependencies
+    const internal = importRelations
+      .filter(rel => rel.to.includes('/') || rel.to.includes('.py'))
+      .map(rel => ({ from: rel.from, to: rel.to }))
+      .slice(0, 20); // Limit to key internal deps
+
+    return {
+      external: Array.from(external).slice(0, 20),
+      internal
+    };
+  }
+
+  private _extractKeyRelations(relations: Relation[]) {
+    const inheritance = relations
+      .filter(r => r.relationType === 'inherits')
+      .map(r => ({ from: r.from, to: r.to }));
+
+    const keyUsages = relations
+      .filter(r => ['calls', 'uses', 'implements'].includes(r.relationType))
+      .slice(0, 30) // Limit for token management
+      .map(r => ({ from: r.from, to: r.to, type: r.relationType }));
+
+    return { inheritance, keyUsages };
   }
 }
