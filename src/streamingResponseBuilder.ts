@@ -4,10 +4,26 @@
  */
 
 import { Entity, Relation, SmartGraph, KnowledgeGraph, StreamingGraphResponse, TokenBudget, ContentSection, ScrollOptions } from './types.js';
-import { tokenCounter } from './tokenCounter.js';
+import { tokenCounter, TOKEN_CONFIG } from './tokenCounter.js';
+
+// Section priorities for consistent ordering
+const SECTION_PRIORITIES = {
+  SUMMARY: 5,      // Highest - always include
+  API_SURFACE: 4,  // High - core functionality
+  FILE_STRUCTURE: 3, // Medium - structure overview
+  DEPENDENCIES: 2,  // Medium - external deps
+  RELATIONS: 1     // Lowest - detailed connections
+} as const;
+
+// Minimum token reserves for sections
+const MIN_TOKEN_RESERVES = {
+  FILE_STRUCTURE: 1000,
+  API_SURFACE: 500,
+  DEPENDENCIES: 300,
+  RELATIONS: 200
+} as const;
 
 export class StreamingResponseBuilder {
-  private readonly DEFAULT_TOKEN_LIMIT = 25500; // Optimized for max utilization under 25k
   
   /**
    * Build streaming response with progressive content and token enforcement
@@ -19,278 +35,337 @@ export class StreamingResponseBuilder {
   ): Promise<StreamingGraphResponse> {
     const mode = options.mode || 'smart';
     const limit = options.limit || 50;
-    const tokenLimit = this.DEFAULT_TOKEN_LIMIT;
+    const tokenLimit = TOKEN_CONFIG.DEFAULT_TOKEN_LIMIT;
     
-    let budget = tokenCounter.createBudget(tokenLimit);
-    const sectionsIncluded: string[] = [];
-    let truncated = false;
-    let truncationReason: string | undefined;
+    const budget = tokenCounter.createBudget(tokenLimit);
+    const context = {
+      entities,
+      relations,
+      limit,
+      budget,
+      sectionsIncluded: [] as string[],
+      truncated: false,
+      truncationReason: undefined as string | undefined
+    };
 
     try {
-      switch (mode) {
-        case 'smart':
-          return await this.buildSmartStreamingResponse(entities, relations, limit, budget, sectionsIncluded);
-        case 'entities':
-          return await this.buildEntitiesStreamingResponse(entities, options, budget, sectionsIncluded);
-        case 'relationships':
-          return await this.buildRelationshipsStreamingResponse(relations, budget, sectionsIncluded);
-        case 'raw':
-          return await this.buildRawStreamingResponse(entities, relations, budget, sectionsIncluded);
-        default:
-          throw new Error(`Unknown mode: ${mode}`);
-      }
-    } catch (error) {
-      // If any error occurs, return basic response
-      return {
-        content: { entities: [], relations: [] },
-        meta: {
-          tokenCount: 0,
-          tokenLimit,
-          truncated: true,
-          truncationReason: `Error building response: ${error}`,
-          sectionsIncluded: []
-        }
+      const builders = {
+        smart: () => this.buildSmartStreamingResponse(context),
+        entities: () => this.buildEntitiesStreamingResponse(context, options),
+        relationships: () => this.buildRelationshipsStreamingResponse(context),
+        raw: () => this.buildRawStreamingResponse(context)
       };
+
+      const builder = builders[mode];
+      if (!builder) {
+        throw new Error(`Unknown mode: ${mode}`);
+      }
+
+      return await builder();
+    } catch (error) {
+      return this.createErrorResponse(error, tokenLimit);
     }
+  }
+
+  /**
+   * Create error response with consistent format
+   */
+  private createErrorResponse(error: any, tokenLimit: number): StreamingGraphResponse {
+    return {
+      content: { entities: [], relations: [] },
+      meta: {
+        tokenCount: 0,
+        tokenLimit,
+        truncated: true,
+        truncationReason: `Error building response: ${error}`,
+        sectionsIncluded: []
+      }
+    };
   }
 
   /**
    * Build smart mode response with progressive section building
    */
   private async buildSmartStreamingResponse(
-    entities: Entity[], 
-    relations: Relation[], 
-    limitPerType: number,
-    budget: TokenBudget,
-    sectionsIncluded: string[]
+    context: {
+      entities: Entity[];
+      relations: Relation[];
+      limit: number;
+      budget: TokenBudget;
+      sectionsIncluded: string[];
+      truncated: boolean;
+      truncationReason?: string;
+    }
   ): Promise<StreamingGraphResponse> {
+    const { entities, relations, limit } = context;
     const smartGraph: Partial<SmartGraph> = {};
-    let truncated = false;
-    let truncationReason: string | undefined;
-
-    // Section 1: Summary (highest priority, always include)
-    const summarySection = this.buildSummarySection(entities, relations);
-    if (tokenCounter.fitsInBudget(budget, summarySection)) {
-      smartGraph.summary = summarySection;
-      budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(summarySection));
-      sectionsIncluded.push('summary');
-    } else {
-      // Summary is critical - truncate if needed
-      const truncatedSummary = tokenCounter.truncateToFit(summarySection, budget);
-      smartGraph.summary = truncatedSummary.content;
-      budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(truncatedSummary.content));
-      sectionsIncluded.push('summary (truncated)');
-      truncated = true;
-    }
-
-    // Section 2: File Structure (medium priority)
-    if (budget.remaining > 1000) { // Reserve tokens for other sections
-      const structureSection = this.buildFileStructureSection(entities);
-      if (tokenCounter.fitsInBudget(budget, structureSection)) {
-        smartGraph.structure = structureSection;
-        budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(structureSection));
-        sectionsIncluded.push('structure');
-      } else {
-        const truncatedStructure = tokenCounter.truncateToFit(structureSection, budget);
-        if (truncatedStructure.content) {
-          smartGraph.structure = truncatedStructure.content;
-          budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(truncatedStructure.content));
-          sectionsIncluded.push('structure (truncated)');
-          truncated = true;
-        }
+    
+    // Define sections with their builders, priorities, and minimum token reserves
+    const sections = [
+      {
+        name: 'summary',
+        priority: SECTION_PRIORITIES.SUMMARY,
+        minTokens: 0, // Always try to include
+        builder: () => this.buildSummarySection(entities, relations),
+        critical: true // Must include even if truncated
+      },
+      {
+        name: 'structure',
+        priority: SECTION_PRIORITIES.FILE_STRUCTURE,
+        minTokens: MIN_TOKEN_RESERVES.FILE_STRUCTURE,
+        builder: () => this.buildFileStructureSection(entities),
+        critical: false
+      },
+      {
+        name: 'apiSurface',
+        priority: SECTION_PRIORITIES.API_SURFACE,
+        minTokens: MIN_TOKEN_RESERVES.API_SURFACE,
+        builder: () => this.buildApiSurfaceSection(entities, relations, limit),
+        critical: false
+      },
+      {
+        name: 'dependencies',
+        priority: SECTION_PRIORITIES.DEPENDENCIES,
+        minTokens: MIN_TOKEN_RESERVES.DEPENDENCIES,
+        builder: () => this.buildDependenciesSection(entities, relations),
+        critical: false
+      },
+      {
+        name: 'relations',
+        priority: SECTION_PRIORITIES.RELATIONS,
+        minTokens: MIN_TOKEN_RESERVES.RELATIONS,
+        builder: () => this.buildRelationsSection(relations),
+        critical: false
       }
-    }
+    ];
 
-    // Section 3: API Surface (high priority)
-    if (budget.remaining > 500) {
-      const apiSurfaceSection = this.buildApiSurfaceSection(entities, relations, limitPerType);
-      if (tokenCounter.fitsInBudget(budget, apiSurfaceSection)) {
-        smartGraph.apiSurface = apiSurfaceSection;
-        budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(apiSurfaceSection));
-        sectionsIncluded.push('apiSurface');
-      } else {
-        const truncatedApiSurface = tokenCounter.truncateToFit(apiSurfaceSection, budget);
-        if (truncatedApiSurface.content) {
-          smartGraph.apiSurface = truncatedApiSurface.content;
-          budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(truncatedApiSurface.content));
-          sectionsIncluded.push('apiSurface (truncated)');
-          truncated = true;
-        }
-      }
-    }
+    // Sort sections by priority
+    sections.sort((a, b) => b.priority - a.priority);
 
-    // Section 4: Dependencies (medium priority)
-    if (budget.remaining > 300) {
-      const dependenciesSection = this.buildDependenciesSection(entities, relations);
-      if (tokenCounter.fitsInBudget(budget, dependenciesSection)) {
-        smartGraph.dependencies = dependenciesSection;
-        budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(dependenciesSection));
-        sectionsIncluded.push('dependencies');
-      } else {
-        const truncatedDeps = tokenCounter.truncateToFit(dependenciesSection, budget);
-        if (truncatedDeps.content) {
-          smartGraph.dependencies = truncatedDeps.content;
-          budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(truncatedDeps.content));
-          sectionsIncluded.push('dependencies (truncated)');
-          truncated = true;
-        }
+    // Build sections progressively
+    for (const section of sections) {
+      if (context.budget.remaining < section.minTokens && !section.critical) {
+        context.truncated = true;
+        context.truncationReason = `${section.name} section excluded due to token limit`;
+        continue;
       }
-    }
 
-    // Section 5: Relations (lowest priority)
-    if (budget.remaining > 200) {
-      const relationsSection = this.buildRelationsSection(relations);
-      if (tokenCounter.fitsInBudget(budget, relationsSection)) {
-        smartGraph.relations = relationsSection;
-        budget = tokenCounter.consumeTokens(budget, tokenCounter.estimateTokensWithFormatting(relationsSection));
-        sectionsIncluded.push('relations');
-      } else {
-        truncated = true;
-        truncationReason = 'Relations section excluded due to token limit';
+      const result = await this.addSection(
+        smartGraph,
+        section.name,
+        section.builder,
+        context,
+        section.critical
+      );
+
+      if (!result.added && !section.critical) {
+        context.truncated = true;
+        context.truncationReason = `${section.name} section excluded due to token limit`;
       }
-    } else {
-      truncated = true;
-      truncationReason = 'Relations section excluded due to token limit';
     }
 
     return {
       content: smartGraph as SmartGraph,
       meta: {
-        tokenCount: budget.used,
-        tokenLimit: budget.total,
-        truncated,
-        truncationReason,
-        sectionsIncluded
+        tokenCount: context.budget.used,
+        tokenLimit: context.budget.total,
+        truncated: context.truncated,
+        truncationReason: context.truncationReason,
+        sectionsIncluded: context.sectionsIncluded
       }
     };
+  }
+
+  /**
+   * Add a section to the response with automatic truncation handling
+   */
+  private async addSection(
+    graph: any,
+    sectionName: string,
+    builder: () => any,
+    context: {
+      budget: TokenBudget;
+      sectionsIncluded: string[];
+      truncated: boolean;
+    },
+    critical: boolean = false
+  ): Promise<{ added: boolean }> {
+    const content = builder();
+    
+    if (tokenCounter.fitsInBudget(context.budget, content)) {
+      graph[sectionName] = content;
+      context.budget = tokenCounter.consumeTokens(
+        context.budget,
+        tokenCounter.estimateTokensWithFormatting(content)
+      );
+      context.sectionsIncluded.push(sectionName);
+      return { added: true };
+    }
+
+    // Try to truncate if critical or if there's reasonable space
+    if (critical || context.budget.remaining > 100) {
+      const truncated = tokenCounter.truncateToFit(content, context.budget);
+      if (truncated.content) {
+        graph[sectionName] = truncated.content;
+        context.budget = tokenCounter.consumeTokens(
+          context.budget,
+          tokenCounter.estimateTokensWithFormatting(truncated.content)
+        );
+        context.sectionsIncluded.push(`${sectionName} (truncated)`);
+        context.truncated = true;
+        return { added: true };
+      }
+    }
+
+    return { added: false };
   }
 
   /**
    * Build entities-only streaming response
    */
   private async buildEntitiesStreamingResponse(
-    entities: Entity[],
-    options: ScrollOptions,
-    budget: TokenBudget,
-    sectionsIncluded: string[]
+    context: {
+      entities: Entity[];
+      relations: Relation[];
+      limit: number;
+      budget: TokenBudget;
+      sectionsIncluded: string[];
+      truncated: boolean;
+      truncationReason?: string;
+    },
+    options: ScrollOptions
   ): Promise<StreamingGraphResponse> {
-    let filteredEntities = entities;
-    
-    // Filter by entity types if specified
-    if (options.entityTypes && options.entityTypes.length > 0) {
-      filteredEntities = entities.filter(e => options.entityTypes!.includes(e.entityType));
-    }
+    const filteredEntities = this.filterAndLimitEntities(context.entities, options);
+    const result = await this.fitContentToBudget(
+      { entities: filteredEntities, relations: [] },
+      context.budget,
+      (content) => ({
+        ...content,
+        entities: content.entities.slice(0, Math.floor(content.entities.length * 0.8))
+      })
+    );
 
-    // Apply limit
-    if (options.limit) {
-      filteredEntities = filteredEntities.slice(0, options.limit);
-    }
-
-    // Check if all entities fit in budget
-    const entitiesResponse = { entities: filteredEntities, relations: [] };
-    if (tokenCounter.fitsInBudget(budget, entitiesResponse)) {
-      return {
-        content: entitiesResponse,
-        meta: {
-          tokenCount: tokenCounter.estimateTokensWithFormatting(entitiesResponse),
-          tokenLimit: budget.total,
-          truncated: false,
-          sectionsIncluded: ['entities']
-        }
-      };
-    }
-
-    // Progressively reduce entities until they fit
-    let truncatedEntities = filteredEntities;
-    let truncated = false;
-    
-    while (truncatedEntities.length > 0) {
-      const testResponse = { entities: truncatedEntities, relations: [] };
-      if (tokenCounter.fitsInBudget(budget, testResponse)) {
-        break;
-      }
-      truncatedEntities = truncatedEntities.slice(0, Math.floor(truncatedEntities.length * 0.8));
-      truncated = true;
-    }
-
-    const finalResponse = { entities: truncatedEntities, relations: [] };
     return {
-      content: finalResponse,
+      content: result.content,
       meta: {
-        tokenCount: tokenCounter.estimateTokensWithFormatting(finalResponse),
-        tokenLimit: budget.total,
-        truncated,
-        truncationReason: truncated ? `Reduced from ${filteredEntities.length} to ${truncatedEntities.length} entities` : undefined,
+        tokenCount: tokenCounter.estimateTokensWithFormatting(result.content),
+        tokenLimit: context.budget.total,
+        truncated: result.truncated,
+        truncationReason: result.truncated 
+          ? `Reduced from ${filteredEntities.length} to ${result.content.entities.length} entities`
+          : undefined,
         sectionsIncluded: ['entities']
       }
     };
   }
 
   /**
+   * Filter and limit entities based on options
+   */
+  private filterAndLimitEntities(entities: Entity[], options: ScrollOptions): Entity[] {
+    let result = entities;
+    
+    if (options.entityTypes && options.entityTypes.length > 0) {
+      result = result.filter(e => options.entityTypes!.includes(e.entityType));
+    }
+
+    if (options.limit) {
+      result = result.slice(0, options.limit);
+    }
+
+    return result;
+  }
+
+  /**
    * Build relationships-only streaming response
    */
   private async buildRelationshipsStreamingResponse(
-    relations: Relation[],
-    budget: TokenBudget,
-    sectionsIncluded: string[]
+    context: {
+      entities: Entity[];
+      relations: Relation[];
+      limit: number;
+      budget: TokenBudget;
+      sectionsIncluded: string[];
+      truncated: boolean;
+      truncationReason?: string;
+    }
   ): Promise<StreamingGraphResponse> {
-    const relationsResponse = { entities: [], relations };
-    
-    if (tokenCounter.fitsInBudget(budget, relationsResponse)) {
-      return {
-        content: relationsResponse,
-        meta: {
-          tokenCount: tokenCounter.estimateTokensWithFormatting(relationsResponse),
-          tokenLimit: budget.total,
-          truncated: false,
-          sectionsIncluded: ['relations']
-        }
-      };
-    }
+    const result = await this.fitContentToBudget(
+      { entities: [], relations: context.relations },
+      context.budget,
+      (content) => ({
+        ...content,
+        relations: content.relations.slice(0, Math.floor(content.relations.length * 0.8))
+      })
+    );
 
-    // Progressively reduce relations
-    let truncatedRelations = relations;
-    let truncated = false;
-    
-    while (truncatedRelations.length > 0) {
-      const testResponse = { entities: [], relations: truncatedRelations };
-      if (tokenCounter.fitsInBudget(budget, testResponse)) {
-        break;
-      }
-      truncatedRelations = truncatedRelations.slice(0, Math.floor(truncatedRelations.length * 0.8));
-      truncated = true;
-    }
-
-    const finalResponse = { entities: [], relations: truncatedRelations };
     return {
-      content: finalResponse,
+      content: result.content,
       meta: {
-        tokenCount: tokenCounter.estimateTokensWithFormatting(finalResponse),
-        tokenLimit: budget.total,
-        truncated,
-        truncationReason: truncated ? `Reduced from ${relations.length} to ${truncatedRelations.length} relations` : undefined,
+        tokenCount: tokenCounter.estimateTokensWithFormatting(result.content),
+        tokenLimit: context.budget.total,
+        truncated: result.truncated,
+        truncationReason: result.truncated
+          ? `Reduced from ${context.relations.length} to ${result.content.relations.length} relations`
+          : undefined,
         sectionsIncluded: ['relations']
       }
     };
   }
 
   /**
+   * Progressively fit content to budget using a reducer function
+   */
+  private async fitContentToBudget<T extends { entities: Entity[]; relations: Relation[] }>(
+    content: T,
+    budget: TokenBudget,
+    reducer: (content: T) => T
+  ): Promise<{ content: T; truncated: boolean }> {
+    if (tokenCounter.fitsInBudget(budget, content)) {
+      return { content, truncated: false };
+    }
+
+    let current = content;
+    let truncated = false;
+    
+    while ((current.entities.length > 0 || current.relations.length > 0)) {
+      if (tokenCounter.fitsInBudget(budget, current)) {
+        break;
+      }
+      current = reducer(current);
+      truncated = true;
+      
+      // Prevent infinite loops
+      if (current.entities.length === 0 && current.relations.length === 0) {
+        break;
+      }
+    }
+
+    return { content: current, truncated };
+  }
+
+  /**
    * Build raw streaming response with truncation if needed
    */
   private async buildRawStreamingResponse(
-    entities: Entity[],
-    relations: Relation[],
-    budget: TokenBudget,
-    sectionsIncluded: string[]
+    context: {
+      entities: Entity[];
+      relations: Relation[];
+      limit: number;
+      budget: TokenBudget;
+      sectionsIncluded: string[];
+      truncated: boolean;
+      truncationReason?: string;
+    }
   ): Promise<StreamingGraphResponse> {
-    const rawResponse = { entities, relations };
+    const rawResponse = { entities: context.entities, relations: context.relations };
     
-    if (tokenCounter.fitsInBudget(budget, rawResponse)) {
+    if (tokenCounter.fitsInBudget(context.budget, rawResponse)) {
       return {
         content: rawResponse,
         meta: {
           tokenCount: tokenCounter.estimateTokensWithFormatting(rawResponse),
-          tokenLimit: budget.total,
+          tokenLimit: context.budget.total,
           truncated: false,
           sectionsIncluded: ['entities', 'relations']
         }
@@ -302,7 +377,7 @@ export class StreamingResponseBuilder {
       content: { entities: [], relations: [] },
       meta: {
         tokenCount: 0,
-        tokenLimit: budget.total,
+        tokenLimit: context.budget.total,
         truncated: true,
         truncationReason: 'Raw response too large - use smart, entities, or relationships mode with limits',
         sectionsIncluded: []

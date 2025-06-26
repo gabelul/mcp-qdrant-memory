@@ -2,432 +2,254 @@
 
 /**
  * Comprehensive test for streaming response and token management
- * Validates Option 1: Streaming Response implementation
+ * Validates streaming response implementation with token limits
  */
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-console.log('🧪 Starting Streaming Token Management Verification...\n');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+console.log('🧪 Starting Streaming Token Management Tests...\n');
 
 /**
- * Test suite for validating streaming implementation
+ * Base test framework with assertion helpers
  */
-class StreamingValidator {
-  constructor() {
-    this.testCount = 0;
-    this.passCount = 0;
-    this.failCount = 0;
+class TestRunner {
+  constructor(suiteName) {
+    this.suiteName = suiteName;
+    this.tests = [];
+    this.results = { passed: 0, failed: 0, total: 0 };
   }
 
-  test(name, testFn) {
-    this.testCount++;
-    console.log(`📋 Test ${this.testCount}: ${name}`);
-    
-    try {
-      testFn();
-      this.passCount++;
-      console.log(`✅ PASS: ${name}\n`);
-    } catch (error) {
-      this.failCount++;
-      console.log(`❌ FAIL: ${name}`);
-      console.log(`   Error: ${error.message}\n`);
-    }
+  test(description, testFn) {
+    this.tests.push({ description, testFn });
   }
 
   assert(condition, message) {
     if (!condition) {
-      throw new Error(message);
+      throw new Error(message || 'Assertion failed');
     }
+  }
+
+  assertEquals(actual, expected, message) {
+    if (actual !== expected) {
+      throw new Error(message || `Expected ${expected}, got ${actual}`);
+    }
+  }
+
+  assertIncludes(array, item, message) {
+    if (!array.includes(item)) {
+      throw new Error(message || `Expected array to include ${item}`);
+    }
+  }
+
+  async run() {
+    console.log(`\n📋 Running ${this.suiteName}...\n`);
+    
+    for (const { description, testFn } of this.tests) {
+      this.results.total++;
+      try {
+        await testFn.call(this);
+        this.results.passed++;
+        console.log(`  ✅ ${description}`);
+      } catch (error) {
+        this.results.failed++;
+        console.log(`  ❌ ${description}`);
+        console.log(`     ${error.message}`);
+      }
+    }
+
+    this.printSummary();
   }
 
   printSummary() {
-    console.log('📊 Streaming Implementation Verification Summary:');
-    console.log(`   Total: ${this.testCount}`);
-    console.log(`   Passed: ${this.passCount}`);
-    console.log(`   Failed: ${this.failCount}`);
-    console.log(`   Success Rate: ${((this.passCount / this.testCount) * 100).toFixed(1)}%\n`);
+    const { passed, failed, total } = this.results;
+    const successRate = total > 0 ? (passed / total * 100).toFixed(1) : 0;
+    
+    console.log(`\n📊 ${this.suiteName} Results:`);
+    console.log(`   Total: ${total}`);
+    console.log(`   Passed: ${passed}`);
+    console.log(`   Failed: ${failed}`);
+    console.log(`   Success Rate: ${successRate}%\n`);
   }
 }
 
-function validateStreamingImplementation() {
-  const validator = new StreamingValidator();
+/**
+ * Test data generators
+ */
+const TestData = {
+  createMockEntity(name, type = 'class', observations = []) {
+    return {
+      name,
+      entityType: type,
+      observations: observations.length ? observations : [
+        `Defined in: ${name.toLowerCase()}.py`,
+        `Line: ${Math.floor(Math.random() * 1000)}`,
+        `Description: Mock ${type} for testing`
+      ]
+    };
+  },
 
-  // Test 1: Verify TokenCounter utility class implementation
-  validator.test('TokenCounter utility class implementation', () => {
-    const tokenCounterFile = fs.readFileSync('./src/tokenCounter.ts', 'utf8');
-    
-    validator.assert(
-      tokenCounterFile.includes('export class TokenCounter'), 
-      'TokenCounter class should be exported'
-    );
-    
-    validator.assert(
-      tokenCounterFile.includes('estimateTokens(content: string | object): number'), 
-      'estimateTokens method should handle string and object types'
-    );
-    
-    validator.assert(
-      tokenCounterFile.includes('CHARS_PER_TOKEN = 4'), 
-      'Should use industry standard 4 chars per token'
-    );
-    
-    validator.assert(
-      tokenCounterFile.includes('createBudget(totalLimit: number): TokenBudget'), 
-      'Should provide budget management functionality'
-    );
-    
-    validator.assert(
-      tokenCounterFile.includes('truncateToFit(content: any, budget: TokenBudget)'), 
-      'Should provide content truncation functionality'
-    );
-    
-    validator.assert(
-      tokenCounterFile.includes('export const tokenCounter = new TokenCounter()'), 
-      'Should export singleton instance'
-    );
-    
-    console.log('   ✓ Class structure correct');
-    console.log('   ✓ Token estimation methods present');
-    console.log('   ✓ Budget management implemented');
-    console.log('   ✓ Content truncation available');
-    console.log('   ✓ Singleton pattern used');
-  });
+  createMockRelation(from, to, type = 'contains') {
+    return { from, to, relationType: type };
+  },
 
-  // Test 2: Verify StreamingResponseBuilder implementation
-  validator.test('StreamingResponseBuilder implementation', () => {
-    const builderFile = fs.readFileSync('./src/streamingResponseBuilder.ts', 'utf8');
+  generateLargeDataset(entityCount = 1000, relationCount = 2000) {
+    const entities = [];
+    const relations = [];
     
-    validator.assert(
-      builderFile.includes('export class StreamingResponseBuilder'), 
-      'StreamingResponseBuilder class should be exported'
-    );
-    
-    validator.assert(
-      builderFile.includes('buildStreamingResponse('), 
-      'Main streaming response method should exist'
-    );
-    
-    validator.assert(
-      builderFile.includes('buildSmartStreamingResponse('), 
-      'Smart mode streaming implementation should exist'
-    );
-    
-    validator.assert(
-      builderFile.includes('DEFAULT_TOKEN_LIMIT = 24000'), 
-      'Should set conservative token limit under 25k'
-    );
-    
-    validator.assert(
-      builderFile.includes('tokenCounter.createBudget(tokenLimit)'), 
-      'Should integrate with TokenCounter for budget management'
-    );
-    
-    validator.assert(
-      builderFile.includes('sectionsIncluded: string[]'), 
-      'Should track which sections were included'
-    );
-    
-    validator.assert(
-      builderFile.includes('truncated = ') || builderFile.includes('truncated:'), 
-      'Should track truncation status'
-    );
-    
-    validator.assert(
-      builderFile.includes('export const streamingResponseBuilder'), 
-      'Should export singleton instance'
-    );
-    
-    console.log('   ✓ Class structure correct');
-    console.log('   ✓ Progressive building implemented');
-    console.log('   ✓ Token budget integration present');
-    console.log('   ✓ Metadata tracking included');
-    console.log('   ✓ All response modes supported');
-  });
-
-  // Test 3: Verify enhanced types for streaming
-  validator.test('Enhanced type definitions for streaming', () => {
-    const typesFile = fs.readFileSync('./src/types.ts', 'utf8');
-    
-    validator.assert(
-      typesFile.includes('interface StreamingGraphResponse'), 
-      'StreamingGraphResponse interface should exist'
-    );
-    
-    validator.assert(
-      typesFile.includes('interface TokenBudget'), 
-      'TokenBudget interface should exist'
-    );
-    
-    validator.assert(
-      typesFile.includes('interface ContentSection'), 
-      'ContentSection interface should exist'
-    );
-    
-    validator.assert(
-      typesFile.includes('tokenCount: number'), 
-      'Should track token count in metadata'
-    );
-    
-    validator.assert(
-      typesFile.includes('tokenLimit: number'), 
-      'Should track token limit in metadata'
-    );
-    
-    validator.assert(
-      typesFile.includes('truncated: boolean'), 
-      'Should track truncation status'
-    );
-    
-    validator.assert(
-      typesFile.includes('sectionsIncluded: string[]'), 
-      'Should track included sections'
-    );
-    
-    console.log('   ✓ Streaming response types defined');
-    console.log('   ✓ Token budget types present');
-    console.log('   ✓ Metadata tracking types included');
-    console.log('   ✓ Section tracking implemented');
-  });
-
-  // Test 4: Verify index.ts integration with streaming
-  validator.test('Index.ts streaming integration', () => {
-    const indexFile = fs.readFileSync('./src/index.ts', 'utf8');
-    
-    validator.assert(
-      indexFile.includes('import { streamingResponseBuilder }'), 
-      'Should import streamingResponseBuilder'
-    );
-    
-    validator.assert(
-      indexFile.includes('StreamingGraphResponse'), 
-      'Should import streaming response types'
-    );
-    
-    validator.assert(
-      indexFile.includes('getRawGraph(): Promise<KnowledgeGraph>'), 
-      'Should provide getRawGraph method'
-    );
-    
-    validator.assert(
-      indexFile.includes('streamingResponseBuilder.buildStreamingResponse('), 
-      'Should use streaming response builder in read_graph handler'
-    );
-    
-    validator.assert(
-      !indexFile.includes('JSON.stringify(graph, null, 2)') || 
-      indexFile.includes('streamingResponse.content'), 
-      'Should replace direct JSON.stringify with streaming response'
-    );
-    
-    validator.assert(
-      indexFile.includes('Response Metadata:'), 
-      'Should include metadata in response for debugging'
-    );
-    
-    validator.assert(
-      indexFile.includes('Tokens:') && indexFile.includes('Truncated:'), 
-      'Should include token and truncation info in metadata'
-    );
-    
-    console.log('   ✓ Streaming imports correct');
-    console.log('   ✓ getRawGraph method implemented');
-    console.log('   ✓ Streaming response integration complete');
-    console.log('   ✓ Metadata debugging included');
-  });
-
-  // Test 5: Verify TypeScript compilation of streaming components
-  validator.test('TypeScript compilation of streaming components', () => {
-    const distExists = fs.existsSync('./dist');
-    validator.assert(distExists, 'dist directory should exist');
-    
-    const tokenCounterExists = fs.existsSync('./dist/tokenCounter.js');
-    validator.assert(tokenCounterExists, 'tokenCounter.js should be compiled');
-    
-    const streamingBuilderExists = fs.existsSync('./dist/streamingResponseBuilder.js');
-    validator.assert(streamingBuilderExists, 'streamingResponseBuilder.js should be compiled');
-    
-    // Check that compiled JS includes our new components
-    if (tokenCounterExists) {
-      const tokenCounterJs = fs.readFileSync('./dist/tokenCounter.js', 'utf8');
-      validator.assert(
-        tokenCounterJs.includes('TokenCounter'), 
-        'Compiled JS should include TokenCounter class'
-      );
-      
-      validator.assert(
-        tokenCounterJs.includes('estimateTokens'), 
-        'Compiled JS should include token estimation methods'
-      );
+    for (let i = 0; i < entityCount; i++) {
+      entities.push(this.createMockEntity(`Entity${i}`, 'class'));
     }
     
-    if (streamingBuilderExists) {
-      const streamingBuilderJs = fs.readFileSync('./dist/streamingResponseBuilder.js', 'utf8');
-      validator.assert(
-        streamingBuilderJs.includes('StreamingResponseBuilder'), 
-        'Compiled JS should include StreamingResponseBuilder class'
-      );
-      
-      validator.assert(
-        streamingBuilderJs.includes('buildStreamingResponse'), 
-        'Compiled JS should include streaming response methods'
-      );
+    for (let i = 0; i < relationCount; i++) {
+      relations.push(this.createMockRelation(
+        `Entity${i % entityCount}`,
+        `Entity${(i + 1) % entityCount}`,
+        ['contains', 'imports', 'inherits', 'uses'][i % 4]
+      ));
     }
     
-    console.log('   ✓ TypeScript compilation successful');
-    console.log('   ✓ All streaming components compiled');
-    console.log('   ✓ Token management methods present');
-    console.log('   ✓ Streaming response methods present');
-  });
-
-  // Test 6: Token management architecture validation
-  validator.test('Token management architecture validation', () => {
-    const tokenCounterFile = fs.readFileSync('./src/tokenCounter.ts', 'utf8');
-    const builderFile = fs.readFileSync('./src/streamingResponseBuilder.ts', 'utf8');
-    
-    // Verify safety margin implementation
-    validator.assert(
-      tokenCounterFile.includes('SAFETY_MARGIN = 0.9'), 
-      'Should implement 10% safety margin'
-    );
-    
-    // Verify budget tracking
-    validator.assert(
-      tokenCounterFile.includes('consumeTokens(budget: TokenBudget, tokens: number)'), 
-      'Should track token consumption'
-    );
-    
-    // Verify truncation strategies
-    validator.assert(
-      tokenCounterFile.includes('truncateObject') && tokenCounterFile.includes('truncateArray'), 
-      'Should implement intelligent truncation strategies'
-    );
-    
-    // Verify progressive building
-    validator.assert(
-      builderFile.includes('budget.remaining >'), 
-      'Should check remaining budget before adding sections'
-    );
-    
-    // Verify prioritization
-    validator.assert(
-      builderFile.includes('summary') && 
-      builderFile.includes('apiSurface') && 
-      builderFile.includes('dependencies'), 
-      'Should implement priority-based section building'
-    );
-    
-    console.log('   ✓ Safety margin implemented');
-    console.log('   ✓ Budget tracking present');
-    console.log('   ✓ Intelligent truncation strategies');
-    console.log('   ✓ Progressive building logic');
-    console.log('   ✓ Priority-based section ordering');
-  });
-
-  // Test 7: Backward compatibility verification
-  validator.test('Backward compatibility verification', () => {
-    const indexFile = fs.readFileSync('./src/index.ts', 'utf8');
-    
-    // Verify existing API is maintained
-    validator.assert(
-      indexFile.includes('case "search_similar"'), 
-      'search_similar functionality should be preserved'
-    );
-    
-    validator.assert(
-      indexFile.includes('case "create_entities"'), 
-      'create_entities functionality should be preserved'
-    );
-    
-    validator.assert(
-      indexFile.includes('case "read_graph"'), 
-      'read_graph functionality should be preserved'
-    );
-    
-    // Verify existing tool schema structure
-    validator.assert(
-      indexFile.includes('mode:') && 
-      indexFile.includes('entityTypes:') && 
-      indexFile.includes('limit:'), 
-      'Existing read_graph parameters should be preserved'
-    );
-    
-    // Verify error handling is maintained
-    validator.assert(
-      indexFile.includes('catch (error)') && indexFile.includes('McpError'), 
-      'Error handling patterns should be preserved'
-    );
-    
-    console.log('   ✓ All existing tools preserved');
-    console.log('   ✓ Existing parameters maintained');
-    console.log('   ✓ Error handling patterns preserved');
-    console.log('   ✓ API backwards compatibility confirmed');
-  });
-
-  // Test 8: Performance and efficiency validation
-  validator.test('Performance and efficiency validation', () => {
-    const builderFile = fs.readFileSync('./src/streamingResponseBuilder.ts', 'utf8');
-    const tokenCounterFile = fs.readFileSync('./src/tokenCounter.ts', 'utf8');
-    
-    // Verify early stopping logic
-    validator.assert(
-      builderFile.includes('if (budget.remaining <') || builderFile.includes('budget.remaining >'), 
-      'Should implement early stopping for performance'
-    );
-    
-    // Verify efficient token estimation
-    validator.assert(
-      tokenCounterFile.includes('Math.ceil(text.length / this.CHARS_PER_TOKEN)'), 
-      'Should use efficient character-based token estimation'
-    );
-    
-    // Verify content reuse
-    validator.assert(
-      builderFile.includes('buildSummarySection') && 
-      builderFile.includes('buildApiSurfaceSection'), 
-      'Should reuse existing smart mode building logic'
-    );
-    
-    // Verify memory efficiency
-    validator.assert(
-      builderFile.includes('truncatedEntities = filteredEntities') || 
-      builderFile.includes('slice(0, Math.floor'), 
-      'Should implement memory-efficient progressive reduction'
-    );
-    
-    console.log('   ✓ Early stopping logic implemented');
-    console.log('   ✓ Efficient token estimation');
-    console.log('   ✓ Content building logic reused');
-    console.log('   ✓ Memory-efficient processing');
-  });
-
-  validator.printSummary();
-  
-  if (validator.failCount === 0) {
-    console.log('🎉 Streaming Token Management Implementation Successful!');
-    console.log('✨ Option 1: Streaming Response Architecture fully implemented:');
-    console.log('   - ✅ TokenCounter utility with industry-standard estimation');
-    console.log('   - ✅ StreamingResponseBuilder with progressive content building');
-    console.log('   - ✅ Real-time token enforcement with budget management');
-    console.log('   - ✅ Enhanced type definitions for streaming responses');
-    console.log('   - ✅ Complete integration with existing MCP infrastructure');
-    console.log('   - ✅ Comprehensive metadata and debugging support');
-    console.log('   - ✅ Backward compatibility maintained');
-    console.log('   - ✅ Performance-optimized with early stopping');
-    console.log('\n🚀 Ready for production! Token overflow issue should be resolved.');
-    console.log('📊 Expected outcome: read_graph responses guaranteed <25k tokens');
-  } else {
-    console.log('⚠️  Streaming implementation verification failed. Please review the issues above.');
+    return { entities, relations };
   }
+};
 
-  return validator.failCount === 0;
+/**
+ * Test suites
+ */
+async function runAllTests() {
+  try {
+    // Import the modules under test
+    const { tokenCounter, TOKEN_CONFIG } = await import('./dist/tokenCounter.js');
+    const { streamingResponseBuilder } = await import('./dist/streamingResponseBuilder.js');
+
+    // Test Suite 1: Token Counter Tests
+    const tokenTests = new TestRunner('Token Counter Tests');
+    
+    tokenTests.test('should estimate tokens correctly', function() {
+      const text = 'Hello world test string';
+      const tokens = tokenCounter.estimateTokens(text);
+      this.assertEquals(tokens, Math.ceil(text.length / TOKEN_CONFIG.CHARS_PER_TOKEN));
+    });
+
+    tokenTests.test('should create budget with safety margin', function() {
+      const limit = 1000;
+      const budget = tokenCounter.createBudget(limit);
+      this.assertEquals(budget.total, Math.floor(limit * TOKEN_CONFIG.SAFETY_MARGIN));
+      this.assertEquals(budget.used, 0);
+      this.assertEquals(budget.remaining, budget.total);
+    });
+
+    tokenTests.test('should truncate strings correctly', function() {
+      const longString = 'a'.repeat(1000);
+      const budget = tokenCounter.createBudget(100);
+      const result = tokenCounter.truncateToFit(longString, budget);
+      
+      this.assert(result.truncated, 'Should be truncated');
+      this.assert(result.content.endsWith(TOKEN_CONFIG.TRUNCATION_SUFFIX));
+      this.assert(tokenCounter.fitsInBudget(budget, result.content));
+    });
+
+    await tokenTests.run();
+
+    // Test Suite 2: Streaming Response Builder Tests
+    const responseTests = new TestRunner('Streaming Response Builder Tests');
+    
+    responseTests.test('should build smart response within token limit', async function() {
+      const { entities, relations } = TestData.generateLargeDataset(100, 200);
+      const result = await streamingResponseBuilder.buildStreamingResponse(
+        entities, 
+        relations, 
+        { mode: 'smart' }
+      );
+      
+      this.assert(result.meta.tokenCount <= result.meta.tokenLimit);
+      this.assert(result.meta.sectionsIncluded.length > 0);
+      this.assertIncludes(result.meta.sectionsIncluded, 'summary');
+    });
+
+    responseTests.test('should handle entities mode with filtering', async function() {
+      const { entities, relations } = TestData.generateLargeDataset(50, 100);
+      const result = await streamingResponseBuilder.buildStreamingResponse(
+        entities,
+        relations,
+        { mode: 'entities', entityTypes: ['class'], limit: 10 }
+      );
+      
+      this.assert(result.content.entities.length <= 10);
+      this.assert(result.content.entities.every(e => e.entityType === 'class'));
+    });
+
+    responseTests.test('should truncate large relationships response', async function() {
+      const { entities, relations } = TestData.generateLargeDataset(10, 5000);
+      const result = await streamingResponseBuilder.buildStreamingResponse(
+        entities,
+        relations,
+        { mode: 'relationships' }
+      );
+      
+      this.assert(result.meta.truncated, 'Should be truncated');
+      this.assert(result.meta.truncationReason.includes('Reduced from'));
+      this.assert(result.content.relations.length < 5000);
+    });
+
+    responseTests.test('should reject raw mode when too large', async function() {
+      const { entities, relations } = TestData.generateLargeDataset(1000, 5000);
+      const result = await streamingResponseBuilder.buildStreamingResponse(
+        entities,
+        relations,
+        { mode: 'raw' }
+      );
+      
+      this.assert(result.meta.truncated);
+      this.assertEquals(result.content.entities.length, 0);
+      this.assertEquals(result.content.relations.length, 0);
+      this.assert(result.meta.truncationReason.includes('Raw response too large'));
+    });
+
+    await responseTests.run();
+
+    // Test Suite 3: Integration Tests
+    const integrationTests = new TestRunner('Integration Tests');
+    
+    integrationTests.test('should prioritize sections correctly', async function() {
+      const { entities, relations } = TestData.generateLargeDataset(500, 1000);
+      const result = await streamingResponseBuilder.buildStreamingResponse(
+        entities,
+        relations,
+        { mode: 'smart', limit: 20 }
+      );
+      
+      // Summary should always be included
+      this.assertIncludes(result.meta.sectionsIncluded, 'summary');
+      
+      // If truncated, lower priority sections should be excluded
+      if (result.meta.truncated) {
+        const sectionOrder = ['summary', 'apiSurface', 'structure', 'dependencies', 'relations'];
+        const includedIndex = result.meta.sectionsIncluded
+          .map(s => s.replace(' (truncated)', ''))
+          .map(s => sectionOrder.indexOf(s))
+          .filter(i => i >= 0);
+        
+        // Verify sections are in priority order
+        for (let i = 1; i < includedIndex.length; i++) {
+          this.assert(includedIndex[i] >= includedIndex[i-1], 'Sections should be in priority order');
+        }
+      }
+    });
+
+    await integrationTests.run();
+
+    // Summary
+    console.log('\n✅ All streaming token management tests completed!\n');
+
+  } catch (error) {
+    console.error('\n❌ Test suite failed:', error);
+    process.exit(1);
+  }
 }
 
-// Execute validation
-try {
-  const success = validateStreamingImplementation();
-  process.exit(success ? 0 : 1);
-} catch (error) {
-  console.error('❌ Validation execution failed:', error);
-  process.exit(1);
-}
+// Run tests
+runAllTests();

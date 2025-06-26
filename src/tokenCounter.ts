@@ -5,16 +5,24 @@
 
 import { TokenBudget, ContentSection } from './types.js';
 
+// Configuration constants centralized for consistency
+export const TOKEN_CONFIG = {
+  CHARS_PER_TOKEN: 4, // Industry standard approximation
+  SAFETY_MARGIN: 0.96, // 4% safety buffer for maximum utilization
+  DEFAULT_TOKEN_LIMIT: 25500, // Optimized for max utilization under 25k
+  MAX_STRING_PREVIEW: 500, // Max length for string previews
+  TRUNCATION_SUFFIX: '...[truncated]'
+} as const;
+
 export class TokenCounter {
-  private readonly CHARS_PER_TOKEN = 4; // Industry standard approximation
-  private readonly SAFETY_MARGIN = 0.96; // 4% safety buffer for maximum utilization
+  private readonly config = TOKEN_CONFIG
   
   /**
    * Estimate token count from text content
    */
   estimateTokens(content: string | object): number {
     const text = typeof content === 'string' ? content : JSON.stringify(content);
-    return Math.ceil(text.length / this.CHARS_PER_TOKEN);
+    return Math.ceil(text.length / this.config.CHARS_PER_TOKEN);
   }
 
   /**
@@ -28,8 +36,8 @@ export class TokenCounter {
   /**
    * Create a token budget with safety margin
    */
-  createBudget(totalLimit: number): TokenBudget {
-    const safeLimit = Math.floor(totalLimit * this.SAFETY_MARGIN);
+  createBudget(totalLimit: number = this.config.DEFAULT_TOKEN_LIMIT): TokenBudget {
+    const safeLimit = Math.floor(totalLimit * this.config.SAFETY_MARGIN);
     return {
       total: safeLimit,
       used: 0,
@@ -61,7 +69,7 @@ export class TokenCounter {
    */
   getMaxContentSize(budget: TokenBudget): number {
     // Account for JSON formatting overhead (roughly 20% more characters)
-    return Math.floor(budget.remaining * this.CHARS_PER_TOKEN * 0.8);
+    return Math.floor(budget.remaining * this.config.CHARS_PER_TOKEN * 0.8);
   }
 
   /**
@@ -83,7 +91,7 @@ export class TokenCounter {
     if (typeof content === 'string') {
       const maxChars = this.getMaxContentSize(budget);
       return {
-        content: content.substring(0, maxChars) + '...[truncated]',
+        content: content.substring(0, maxChars) + this.config.TRUNCATION_SUFFIX,
         truncated: true
       };
     }
@@ -106,9 +114,9 @@ export class TokenCounter {
           result[key] = truncatedArray.content;
           truncated = true;
         }
-      } else if (typeof value === 'string' && value.length > 500) {
+      } else if (typeof value === 'string' && value.length > this.config.MAX_STRING_PREVIEW) {
         // Truncate long strings (like docstrings)
-        result[key] = value.substring(0, 500) + '...[truncated]';
+        result[key] = value.substring(0, this.config.MAX_STRING_PREVIEW) + this.config.TRUNCATION_SUFFIX;
         truncated = true;
       }
     }
