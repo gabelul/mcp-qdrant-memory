@@ -9,9 +9,9 @@ import {
   McpError,
   ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
-import { promises as fs } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+// import { promises as fs } from 'fs'; // Removed: No longer using file system for JSON storage
+// import path from 'path'; // Removed: No longer needed for file paths
+// import { fileURLToPath } from 'url'; // Removed: No longer needed for file paths
 import { QdrantPersistence } from './persistence/qdrant.js';
 import { Entity, Relation, KnowledgeGraph, SmartGraph, ScrollOptions, StreamingGraphResponse } from './types.js';
 import { streamingResponseBuilder } from './streamingResponseBuilder.js';
@@ -26,135 +26,108 @@ import {
   validateSearchSimilarRequest,
 } from './validation.js';
 
-// Define paths
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MEMORY_FILE_PATH = path.join(__dirname, `${COLLECTION_NAME}-memory.json`);
+// Removed: Path definitions no longer needed since we're not writing JSON files
 
 class KnowledgeGraphManager {
-  private graph: KnowledgeGraph;
   private qdrant: QdrantPersistence;
 
   constructor() {
-    this.graph = { entities: [], relations: [] };
     this.qdrant = new QdrantPersistence();
   }
 
   async initialize(): Promise<void> {
-    try {
-      const data = await fs.readFile(MEMORY_FILE_PATH, 'utf-8');
-      const parsedData = JSON.parse(data);
-      // Ensure entities have observations array
-      this.graph = {
-        entities: parsedData.entities.map((e: Entity) => ({
-          ...e,
-          observations: e.observations || []
-        })),
-        relations: parsedData.relations || []
-      };
-    } catch (error: unknown) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        // If file doesn't exist, use empty graph
-        this.graph = { entities: [], relations: [] };
-      } else {
-        // Re-throw unexpected errors
-        throw new Error(`Failed to initialize graph: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    // Initialize Qdrant - it's the sole source of truth
     await this.qdrant.initialize();
   }
 
-  async save(): Promise<void> {
-    await fs.writeFile(MEMORY_FILE_PATH, JSON.stringify(this.graph, null, 2));
-  }
+  // async save(): Promise<void> {
+  //   await fs.writeFile(MEMORY_FILE_PATH, JSON.stringify(this.graph, null, 2));
+  // } // Removed: JSON file writing disabled
 
   async addEntities(entities: Entity[]): Promise<void> {
     for (const entity of entities) {
-      const existingIndex = this.graph.entities.findIndex((e: Entity) => e.name === entity.name);
-      if (existingIndex !== -1) {
-        this.graph.entities[existingIndex] = entity;
-      } else {
-        this.graph.entities.push(entity);
-      }
+      // Since we're using Qdrant as the sole source of truth, just persist
       await this.qdrant.persistEntity(entity);
     }
-    await this.save();
+    // await this.save(); // Removed: JSON file writing disabled
   }
 
   async addRelations(relations: Relation[]): Promise<void> {
+    // Load current entities from Qdrant for validation
+    const currentGraph = await this.getRawGraph();
+    
     for (const relation of relations) {
-      if (!this.graph.entities.some(e => e.name === relation.from)) {
+      if (!currentGraph.entities.some(e => e.name === relation.from)) {
         throw new Error(`Entity not found: ${relation.from}`);
       }
-      if (!this.graph.entities.some(e => e.name === relation.to)) {
+      if (!currentGraph.entities.some(e => e.name === relation.to)) {
         throw new Error(`Entity not found: ${relation.to}`);
       }
-      const existingIndex = this.graph.relations.findIndex(
-        (r: Relation) => r.from === relation.from && r.to === relation.to && r.relationType === relation.relationType
-      );
-      if (existingIndex !== -1) {
-        this.graph.relations[existingIndex] = relation;
-      } else {
-        this.graph.relations.push(relation);
-      }
+      
+      // Since we're using Qdrant as the sole source of truth, just persist
       await this.qdrant.persistRelation(relation);
     }
-    await this.save();
+    // await this.save(); // Removed: JSON file writing disabled
   }
 
   async addObservations(entityName: string, observations: string[]): Promise<void> {
-    const entity = this.graph.entities.find((e: Entity) => e.name === entityName);
+    // Load current entities from Qdrant
+    const currentGraph = await this.getRawGraph();
+    const entity = currentGraph.entities.find((e: Entity) => e.name === entityName);
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
     }
     entity.observations.push(...observations);
     await this.qdrant.persistEntity(entity);
-    await this.save();
+    // await this.save(); // Removed: JSON file writing disabled
   }
 
   async deleteEntities(entityNames: string[]): Promise<void> {
+    // Load current graph to find related relations
+    const currentGraph = await this.getRawGraph();
+    
     for (const name of entityNames) {
-      const index = this.graph.entities.findIndex((e: Entity) => e.name === name);
-      if (index !== -1) {
-        this.graph.entities.splice(index, 1);
-        this.graph.relations = this.graph.relations.filter(
-          (r: Relation) => r.from !== name && r.to !== name
-        );
-        await this.qdrant.deleteEntity(name);
+      // Delete the entity
+      await this.qdrant.deleteEntity(name);
+      
+      // Delete all relations involving this entity
+      const relatedRelations = currentGraph.relations.filter(
+        (r: Relation) => r.from === name || r.to === name
+      );
+      for (const relation of relatedRelations) {
+        await this.qdrant.deleteRelation(relation);
       }
     }
-    await this.save();
+    // await this.save(); // Removed: JSON file writing disabled
   }
 
   async deleteObservations(entityName: string, observations: string[]): Promise<void> {
-    const entity = this.graph.entities.find((e: Entity) => e.name === entityName);
+    // Load current entities from Qdrant
+    const currentGraph = await this.getRawGraph();
+    const entity = currentGraph.entities.find((e: Entity) => e.name === entityName);
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
     }
     entity.observations = entity.observations.filter((o: string) => !observations.includes(o));
     await this.qdrant.persistEntity(entity);
-    await this.save();
+    // await this.save(); // Removed: JSON file writing disabled
   }
 
   async deleteRelations(relations: Relation[]): Promise<void> {
     for (const relation of relations) {
-      const index = this.graph.relations.findIndex(
-        (r: Relation) => r.from === relation.from && r.to === relation.to && r.relationType === relation.relationType
-      );
-      if (index !== -1) {
-        this.graph.relations.splice(index, 1);
-        await this.qdrant.deleteRelation(relation);
-      }
+      // Since we're using Qdrant as the sole source of truth, just delete
+      await this.qdrant.deleteRelation(relation);
     }
-    await this.save();
+    // await this.save(); // Removed: JSON file writing disabled
   }
 
   async getGraph(options?: ScrollOptions): Promise<KnowledgeGraph | SmartGraph> {
     try {
       return await this.qdrant.scrollAll(options);
     } catch (error) {
-      console.error('Failed to read from Qdrant, falling back to JSON:', error);
-      // Fallback to basic JSON graph for compatibility
-      return this.graph;
+      console.error('Failed to read from Qdrant:', error);
+      // Return empty graph on error
+      return { entities: [], relations: [] };
     }
   }
 
@@ -168,8 +141,8 @@ class KnowledgeGraphManager {
       // If it's not a KnowledgeGraph (e.g., SmartGraph), return empty
       return { entities: [], relations: [] };
     } catch (error) {
-      console.error('Failed to read raw graph from Qdrant, falling back to JSON:', error);
-      return this.graph;
+      console.error('Failed to read raw graph from Qdrant:', error);
+      return { entities: [], relations: [] };
     }
   }
 
