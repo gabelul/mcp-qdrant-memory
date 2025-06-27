@@ -7,7 +7,7 @@ import {
   OPENAI_API_KEY,
   QDRANT_API_KEY
 } from "../config.js";
-import { Entity, Relation, SmartGraph, ScrollOptions, KnowledgeGraph } from "../types.js";
+import { Entity, Relation, SmartGraph, ScrollOptions, KnowledgeGraph, SearchResult } from "../types.js";
 
 // Create custom Qdrant client that adds auth header
 class CustomQdrantClient extends QdrantClient {
@@ -287,7 +287,7 @@ export class QdrantPersistence {
       with_payload: true,
     });
 
-    const validResults: Array<Entity | Relation> = [];
+    const validResults: SearchResult[] = [];
 
     for (const result of results) {
       if (!result.payload) continue;
@@ -296,10 +296,18 @@ export class QdrantPersistence {
 
       if (isEntity(payload)) {
         const { type, ...entity } = payload;
-        validResults.push(entity);
+        validResults.push({
+          type: 'entity',
+          score: result.score,
+          data: entity
+        });
       } else if (isRelation(payload)) {
         const { type, ...relation } = payload;
-        validResults.push(relation);
+        validResults.push({
+          type: 'relation',
+          score: result.score,
+          data: relation
+        });
       }
     }
 

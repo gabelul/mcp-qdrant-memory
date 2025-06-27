@@ -13,7 +13,7 @@ import {
 // import path from 'path'; // Removed: No longer needed for file paths
 // import { fileURLToPath } from 'url'; // Removed: No longer needed for file paths
 import { QdrantPersistence } from './persistence/qdrant.js';
-import { Entity, Relation, KnowledgeGraph, SmartGraph, ScrollOptions, StreamingGraphResponse } from './types.js';
+import { Entity, Relation, KnowledgeGraph, SmartGraph, ScrollOptions, StreamingGraphResponse, SearchResult } from './types.js';
 import { streamingResponseBuilder } from './streamingResponseBuilder.js';
 import { COLLECTION_NAME } from './config.js';
 import {
@@ -146,7 +146,7 @@ class KnowledgeGraphManager {
     }
   }
 
-  async searchSimilar(query: string, limit: number = 10): Promise<Array<Entity | Relation>> {
+  async searchSimilar(query: string, limit: number = 10): Promise<SearchResult[]> {
     // Ensure limit is a positive number
     const validLimit = Math.max(1, Math.min(limit, 100)); // Cap at 100 results
     return await this.qdrant.searchSimilar(query, validLimit);
