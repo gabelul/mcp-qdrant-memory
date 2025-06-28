@@ -519,8 +519,8 @@ export class QdrantPersistence {
     const entityTypeFilter = options?.entityTypes;
     const limitPerType = options?.limit || 50;
 
-    // First, get raw data from Qdrant
-    const rawData = await this._getRawData();
+    // First, get raw data from Qdrant with limit enforcement
+    const rawData = await this._getRawData(limitPerType);
 
     // Apply filtering
     let filteredEntities = rawData.entities;
@@ -535,12 +535,16 @@ export class QdrantPersistence {
     return { entities: filteredEntities, relations: filteredRelations };
   }
 
-  private async _getRawData(): Promise<{ entities: Entity[], relations: Relation[] }> {
+  private async _getRawData(limit?: number): Promise<{ entities: Entity[], relations: Relation[] }> {
     // Convert v2.4 chunks back to legacy format for read_graph compatibility
     const entities: Entity[] = [];
     const relations: Relation[] = [];
     let offset: string | number | undefined = undefined;
     const batchSize = 100;
+    
+    // If limit is specified, track how many entities we've collected
+    let entityCount = 0;
+    const maxEntities = limit || Number.MAX_SAFE_INTEGER;
 
     do {
       const scrollResult = await this.client.scroll(COLLECTION_NAME!, {
@@ -556,6 +560,11 @@ export class QdrantPersistence {
 
         if (payload.type === "chunk") {
           if (payload.chunk_type === 'metadata') {
+            // Stop if we've reached the entity limit
+            if (entityCount >= maxEntities) {
+              return { entities, relations };
+            }
+            
             // Convert metadata chunks to legacy entity format
             // Handle both 'name' and 'entity_name' field variations
             const entityName = (payload as any).entity_name || (payload as any).name || 'unknown';
@@ -564,6 +573,7 @@ export class QdrantPersistence {
               entityType: payload.entity_type,
               observations: [payload.content]
             });
+            entityCount++;
           } else if (payload.chunk_type === 'relation') {
             // Convert relation chunks to legacy relation format
             if (payload.from && payload.to && payload.relation_type) {
@@ -580,6 +590,11 @@ export class QdrantPersistence {
       offset = (typeof scrollResult.next_page_offset === 'string' || typeof scrollResult.next_page_offset === 'number') 
         ? scrollResult.next_page_offset 
         : undefined;
+        
+      // Exit early if we've reached our entity limit
+      if (entityCount >= maxEntities) {
+        break;
+      }
     } while (offset !== null && offset !== undefined);
 
     return { entities, relations };
