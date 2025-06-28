@@ -54,8 +54,8 @@ class KnowledgeGraphManager {
   }
 
   async addRelations(relations: Relation[]): Promise<void> {
-    // Load current entities from Qdrant for validation
-    const currentGraph = await this.getRawGraph();
+    // Load current entities from Qdrant for validation with unlimited limit
+    const currentGraph = await this.getRawGraph(Number.MAX_SAFE_INTEGER);
     
     for (const relation of relations) {
       if (!currentGraph.entities.some(e => e.name === relation.from)) {
@@ -72,8 +72,8 @@ class KnowledgeGraphManager {
   }
 
   async addObservations(entityName: string, observations: string[]): Promise<void> {
-    // Load current entities from Qdrant
-    const currentGraph = await this.getRawGraph();
+    // Load current entities from Qdrant with unlimited limit for entity lookups
+    const currentGraph = await this.getRawGraph(Number.MAX_SAFE_INTEGER);
     const entity = currentGraph.entities.find((e: Entity) => e.name === entityName);
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
@@ -84,8 +84,8 @@ class KnowledgeGraphManager {
   }
 
   async deleteEntities(entityNames: string[]): Promise<void> {
-    // Load current graph to find related relations
-    const currentGraph = await this.getRawGraph();
+    // Load current graph to find related relations with unlimited limit
+    const currentGraph = await this.getRawGraph(Number.MAX_SAFE_INTEGER);
     
     for (const name of entityNames) {
       // Delete the entity
@@ -103,8 +103,8 @@ class KnowledgeGraphManager {
   }
 
   async deleteObservations(entityName: string, observations: string[]): Promise<void> {
-    // Load current entities from Qdrant
-    const currentGraph = await this.getRawGraph();
+    // Load current entities from Qdrant with unlimited limit for entity lookups
+    const currentGraph = await this.getRawGraph(Number.MAX_SAFE_INTEGER);
     const entity = currentGraph.entities.find((e: Entity) => e.name === entityName);
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
