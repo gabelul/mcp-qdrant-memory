@@ -55,7 +55,7 @@ class KnowledgeGraphManager {
 
   async addRelations(relations: Relation[]): Promise<void> {
     // Load current entities from Qdrant for validation
-    const currentGraph = await this.getRawGraph();
+    const currentGraph = await this.getRawGraph(1000);
     
     for (const relation of relations) {
       if (!currentGraph.entities.some(e => e.name === relation.from)) {
@@ -73,7 +73,7 @@ class KnowledgeGraphManager {
 
   async addObservations(entityName: string, observations: string[]): Promise<void> {
     // Load current entities from Qdrant
-    const currentGraph = await this.getRawGraph();
+    const currentGraph = await this.getRawGraph(1000);
     const entity = currentGraph.entities.find((e: Entity) => e.name === entityName);
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
@@ -85,7 +85,7 @@ class KnowledgeGraphManager {
 
   async deleteEntities(entityNames: string[]): Promise<void> {
     // Load current graph to find related relations
-    const currentGraph = await this.getRawGraph();
+    const currentGraph = await this.getRawGraph(1000);
     
     for (const name of entityNames) {
       // Delete the entity
@@ -104,7 +104,7 @@ class KnowledgeGraphManager {
 
   async deleteObservations(entityName: string, observations: string[]): Promise<void> {
     // Load current entities from Qdrant
-    const currentGraph = await this.getRawGraph();
+    const currentGraph = await this.getRawGraph(1000);
     const entity = currentGraph.entities.find((e: Entity) => e.name === entityName);
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
@@ -132,10 +132,10 @@ class KnowledgeGraphManager {
     }
   }
 
-  async getRawGraph(): Promise<KnowledgeGraph> {
+  async getRawGraph(limit: number = 100): Promise<KnowledgeGraph> {
     try {
-      // Get raw entities and relations from Qdrant without any processing
-      const rawData = await this.qdrant.scrollAll({ mode: 'raw' });
+      // Get limited raw entities and relations from Qdrant for streaming processing
+      const rawData = await this.qdrant.scrollAll({ mode: 'raw', limit });
       if ('entities' in rawData && 'relations' in rawData) {
         return rawData as KnowledgeGraph;
       }
@@ -451,7 +451,7 @@ class MemoryServer {
             };
             
             // Get raw entities and relations from Qdrant for streaming response
-            const rawGraph = await this.graphManager.getRawGraph();
+            const rawGraph = await this.graphManager.getRawGraph(limit);
             const streamingResponse = await streamingResponseBuilder.buildStreamingResponse(
               rawGraph.entities,
               rawGraph.relations,
