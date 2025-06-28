@@ -560,27 +560,30 @@ export class QdrantPersistence {
 
         if (payload.type === "chunk") {
           if (payload.chunk_type === 'metadata') {
-            // Stop if we've reached the entity limit
-            if (entityCount >= maxEntities) {
-              return { entities, relations };
+            // Only add entity if we haven't reached the limit
+            if (entityCount < maxEntities) {
+              // Convert metadata chunks to legacy entity format
+              // Handle both 'name' and 'entity_name' field variations
+              const entityName = (payload as any).entity_name || (payload as any).name || 'unknown';
+              entities.push({
+                name: entityName,
+                entityType: payload.entity_type,
+                observations: [payload.content]
+              });
+              entityCount++;
             }
-            
-            // Convert metadata chunks to legacy entity format
-            // Handle both 'name' and 'entity_name' field variations
-            const entityName = (payload as any).entity_name || (payload as any).name || 'unknown';
-            entities.push({
-              name: entityName,
-              entityType: payload.entity_type,
-              observations: [payload.content]
-            });
-            entityCount++;
           } else if (payload.chunk_type === 'relation') {
-            // Convert relation chunks to legacy relation format
-            if (payload.from && payload.to && payload.relation_type) {
+            // Always process relations regardless of entity limit
+            // Handle actual stored field names: entity_name -> from, relation_target -> to
+            const from = (payload as any).from || (payload as any).entity_name;
+            const to = (payload as any).to || (payload as any).relation_target;
+            const relationType = payload.relation_type || (payload as any).relationType;
+            
+            if (from && to && relationType) {
               relations.push({
-                from: payload.from,
-                to: payload.to,
-                relationType: payload.relation_type
+                from: from,
+                to: to,
+                relationType: relationType
               });
             }
           }
