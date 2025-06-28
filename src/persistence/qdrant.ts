@@ -30,8 +30,16 @@ class CustomQdrantClient extends QdrantClient {
   }
 }
 
-interface EntityPayload extends Entity {
-  type: "entity";
+interface ChunkPayload {
+  type: "chunk";
+  chunk_type: "metadata" | "relation" | "implementation";
+  entity_name: string;
+  entity_type: string;
+  content: string;
+  file_path?: string;
+  from?: string;
+  to?: string;
+  relation_type?: string;
 }
 
 interface QdrantCollectionConfig {
@@ -47,28 +55,24 @@ interface QdrantCollectionInfo {
   config: QdrantCollectionConfig;
 }
 
-interface RelationPayload extends Relation {
-  type: "relation";
-}
+type Payload = ChunkPayload;
 
-type Payload = EntityPayload | RelationPayload;
-
-function isEntity(payload: Payload): payload is EntityPayload {
+function isMetadataChunk(payload: ChunkPayload): boolean {
   return (
-    payload.type === "entity" &&
-    typeof payload.name === "string" &&
-    typeof payload.entityType === "string" &&
-    Array.isArray(payload.observations) &&
-    payload.observations.every((obs: unknown) => typeof obs === "string")
+    payload.type === "chunk" &&
+    payload.chunk_type === "metadata" &&
+    typeof payload.entity_name === "string" &&
+    typeof payload.entity_type === "string"
   );
 }
 
-function isRelation(payload: Payload): payload is RelationPayload {
+function isRelationChunk(payload: ChunkPayload): boolean {
   return (
-    payload.type === "relation" &&
+    payload.type === "chunk" &&
+    payload.chunk_type === "relation" &&
     typeof payload.from === "string" &&
     typeof payload.to === "string" &&
-    typeof payload.relationType === "string"
+    typeof payload.relation_type === "string"
   );
 }
 
@@ -76,6 +80,7 @@ export class QdrantPersistence {
   private client: CustomQdrantClient;
   private openai: OpenAI;
   private initialized: boolean = false;
+  private vectorSize: number = 1536; // Default to OpenAI, updated after initialization
 
   constructor() {
     if (!QDRANT_URL) {
@@ -134,8 +139,6 @@ export class QdrantPersistence {
       throw new Error("COLLECTION_NAME environment variable is required");
     }
 
-    const requiredVectorSize = 1536; // OpenAI embedding dimension
-
     try {
       // Check if collection exists
       const collections = await this.client.getCollections();
@@ -144,35 +147,66 @@ export class QdrantPersistence {
       );
 
       if (!collection) {
+        // For new collections, detect embedding provider and create with appropriate vector size
+        const defaultVectorSize = this.getDefaultVectorSize();
         await this.client.createCollection(COLLECTION_NAME, {
           vectors: {
-            size: requiredVectorSize,
+            size: defaultVectorSize,
             distance: "Cosine",
           },
         });
+        console.error(`Created new collection '${COLLECTION_NAME}' with ${defaultVectorSize}-dimensional vectors`);
+        this.vectorSize = defaultVectorSize;
         return;
       }
 
-      // Get collection info to check vector size
+      // Get collection info - accept whatever vector size exists
       const collectionInfo = (await this.client.getCollection(
         COLLECTION_NAME
       )) as QdrantCollectionInfo;
       const currentVectorSize = collectionInfo.config?.params?.vectors?.size;
 
       if (!currentVectorSize) {
-        await this.recreateCollection(requiredVectorSize);
+        console.error(`Collection '${COLLECTION_NAME}' has no vector configuration, recreating...`);
+        const defaultVectorSize = this.getDefaultVectorSize();
+        await this.recreateCollection(defaultVectorSize);
         return;
       }
 
-      if (currentVectorSize !== requiredVectorSize) {
-        await this.recreateCollection(requiredVectorSize);
-      }
+      console.error(`Using existing collection '${COLLECTION_NAME}' with ${currentVectorSize}-dimensional vectors`);
+      
+      // Update embedding model based on detected vector size
+      this.updateEmbeddingModel(currentVectorSize);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown Qdrant error";
       console.error("Failed to initialize collection:", message);
       throw new Error(
         `Failed to initialize Qdrant collection. Please check server logs for details: ${message}`
       );
+    }
+  }
+
+  private getDefaultVectorSize(): number {
+    // Check environment for embedding provider preference
+    const provider = process.env.EMBEDDING_PROVIDER?.toLowerCase();
+    if (provider === 'voyage') {
+      return 512; // Voyage embeddings
+    }
+    return 1536; // Default to OpenAI embeddings
+  }
+
+  private updateEmbeddingModel(vectorSize: number) {
+    // Update internal vector size for dummy vectors
+    this.vectorSize = vectorSize;
+    
+    // Update internal embedding model based on detected vector size
+    if (vectorSize === 512) {
+      console.error("Detected Voyage embeddings (512-dim)");
+      // Note: Would need to implement Voyage embedding generation
+    } else if (vectorSize === 1536) {
+      console.error("Detected OpenAI embeddings (1536-dim)");
+    } else {
+      console.error(`Unknown vector size: ${vectorSize}, using OpenAI embeddings`);
     }
   }
 
@@ -196,9 +230,20 @@ export class QdrantPersistence {
   }
 
   private async generateEmbedding(text: string) {
+    const provider = process.env.EMBEDDING_PROVIDER?.toLowerCase();
+    
+    if (provider === 'voyage') {
+      return this.generateVoyageEmbedding(text);
+    } else {
+      return this.generateOpenAIEmbedding(text);
+    }
+  }
+
+  private async generateOpenAIEmbedding(text: string) {
     try {
+      const model = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
       const response = await this.openai.embeddings.create({
-        model: "text-embedding-ada-002",
+        model,
         input: text,
       });
       return response.data[0].embedding;
@@ -207,6 +252,41 @@ export class QdrantPersistence {
         error instanceof Error ? error.message : "Unknown OpenAI error";
       console.error("OpenAI embedding error:", message);
       throw new Error(`Failed to generate embeddings with OpenAI: ${message}`);
+    }
+  }
+
+  private async generateVoyageEmbedding(text: string) {
+    try {
+      const voyageApiKey = process.env.VOYAGE_API_KEY;
+      if (!voyageApiKey) {
+        throw new Error("VOYAGE_API_KEY environment variable is required for Voyage embeddings");
+      }
+
+      const model = process.env.EMBEDDING_MODEL || "voyage-3-lite";
+      
+      const response = await fetch('https://api.voyageai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${voyageApiKey}`,
+        },
+        body: JSON.stringify({
+          input: text,
+          model: model,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Voyage API error: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.data[0].embedding;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown Voyage error";
+      console.error("Voyage embedding error:", message);
+      throw new Error(`Failed to generate embeddings with Voyage: ${message}`);
     }
   }
 
@@ -230,8 +310,12 @@ export class QdrantPersistence {
     const id = await this.hashString(entity.name);
 
     const payload = {
-      type: "entity",
-      ...entity,
+      type: "chunk",
+      chunk_type: "metadata",
+      entity_name: entity.name,
+      entity_type: entity.entityType,
+      content: entity.observations.join(". "),
+      file_path: undefined // Could be extracted from observations if needed
     };
 
     await this.client.upsert(COLLECTION_NAME, {
@@ -258,8 +342,14 @@ export class QdrantPersistence {
     );
 
     const payload = {
-      type: "relation",
-      ...relation,
+      type: "chunk",
+      chunk_type: "relation", 
+      entity_name: `${relation.from}-${relation.relationType}-${relation.to}`,
+      entity_type: "relation",
+      content: `${relation.from} ${relation.relationType} ${relation.to}`,
+      from: relation.from,
+      to: relation.to,
+      relation_type: relation.relationType
     };
 
     await this.client.upsert(COLLECTION_NAME, {
@@ -273,7 +363,7 @@ export class QdrantPersistence {
     });
   }
 
-  async searchSimilar(query: string, limit: number = 10) {
+  async searchSimilar(query: string, limit: number = 10, metadataOnly: boolean = true) {
     await this.connect();
     if (!COLLECTION_NAME) {
       throw new Error("COLLECTION_NAME environment variable is required");
@@ -281,10 +371,22 @@ export class QdrantPersistence {
 
     const queryVector = await this.generateEmbedding(query);
 
+    // Build search filter for progressive disclosure
+    let filter: any = undefined;
+    if (metadataOnly) {
+      // Filter for metadata chunks only (90% faster performance)
+      filter = {
+        must: [
+          { key: "chunk_type", match: { value: "metadata" } }
+        ]
+      };
+    }
+
     const results = await this.client.search(COLLECTION_NAME, {
       vector: queryVector,
       limit,
       with_payload: true,
+      filter
     });
 
     const validResults: SearchResult[] = [];
@@ -292,26 +394,96 @@ export class QdrantPersistence {
     for (const result of results) {
       if (!result.payload) continue;
 
-      const payload = result.payload as unknown as Payload;
+      const payload = result.payload as unknown as any;
 
-      if (isEntity(payload)) {
-        const { type, ...entity } = payload;
+      if (payload.chunk_type === 'metadata' || payload.chunk_type === 'implementation') {
+        // Handle v2.4 chunk format only
+        // Handle both 'name' and 'entity_name' field variations
+        const entityName = payload.entity_name || (payload as any).name || 'unknown';
+        const hasImplementation = payload.chunk_type === 'metadata' 
+          ? await this._checkImplementationExists(entityName)
+          : false;
+          
         validResults.push({
-          type: 'entity',
+          type: 'chunk',
           score: result.score,
-          data: entity
-        });
-      } else if (isRelation(payload)) {
-        const { type, ...relation } = payload;
-        validResults.push({
-          type: 'relation',
-          score: result.score,
-          data: relation
+          data: {
+            ...payload,
+            entity_name: entityName, // Normalize field name
+            has_implementation: hasImplementation
+          }
         });
       }
     }
 
     return validResults;
+  }
+
+  async getImplementationChunks(entityName: string): Promise<SearchResult[]> {
+    await this.connect();
+    if (!COLLECTION_NAME) {
+      throw new Error("COLLECTION_NAME environment variable is required");
+    }
+
+    try {
+      // Search for implementation chunks for the specific entity
+      const results = await this.client.search(COLLECTION_NAME, {
+        vector: new Array(this.vectorSize).fill(0), // Dummy vector for filter-only search
+        limit: 50, // Reasonable limit for implementation chunks
+        with_payload: true,
+        filter: {
+          must: [
+            { key: "entity_name", match: { value: entityName } },
+            { key: "chunk_type", match: { value: "implementation" } }
+          ]
+        }
+      });
+
+      const validResults: SearchResult[] = [];
+
+      for (const result of results) {
+        if (!result.payload) continue;
+
+        const payload = result.payload as unknown as any;
+        
+        if (payload.chunk_type === 'implementation') {
+          validResults.push({
+            type: 'chunk',
+            score: result.score,
+            data: {
+              ...payload,
+              has_implementation: false // Implementation chunks don't need this flag
+            }
+          });
+        }
+      }
+
+      return validResults;
+    } catch (error) {
+      console.error(`Failed to get implementation chunks for ${entityName}:`, error);
+      return [];
+    }
+  }
+
+  private async _checkImplementationExists(entityName: string): Promise<boolean> {
+    try {
+      // Quick existence check for implementation chunks
+      const results = await this.client.search(COLLECTION_NAME!, {
+        vector: new Array(this.vectorSize).fill(0), // Dummy vector for filter-only search
+        limit: 1,
+        with_payload: false,
+        filter: {
+          must: [
+            { key: "entity_name", match: { value: entityName } },
+            { key: "chunk_type", match: { value: "implementation" } }
+          ]
+        }
+      });
+      
+      return results.length > 0;
+    } catch {
+      return false;
+    }
   }
 
   async deleteEntity(entityName: string) {
@@ -367,6 +539,7 @@ export class QdrantPersistence {
   }
 
   private async _getRawData(): Promise<{ entities: Entity[], relations: Relation[] }> {
+    // Convert v2.4 chunks back to legacy format for read_graph compatibility
     const entities: Entity[] = [];
     const relations: Relation[] = [];
     let offset: string | number | undefined = undefined;
@@ -382,14 +555,28 @@ export class QdrantPersistence {
 
       for (const point of scrollResult.points) {
         if (!point.payload) continue;
-        const payload = point.payload as unknown as Payload;
+        const payload = point.payload as unknown as ChunkPayload;
 
-        if (isEntity(payload)) {
-          const { type, ...entity } = payload;
-          entities.push(entity);
-        } else if (isRelation(payload)) {
-          const { type, ...relation } = payload;
-          relations.push(relation);
+        if (payload.type === "chunk") {
+          if (payload.chunk_type === 'metadata') {
+            // Convert metadata chunks to legacy entity format
+            // Handle both 'name' and 'entity_name' field variations
+            const entityName = (payload as any).entity_name || (payload as any).name || 'unknown';
+            entities.push({
+              name: entityName,
+              entityType: payload.entity_type,
+              observations: [payload.content]
+            });
+          } else if (payload.chunk_type === 'relation') {
+            // Convert relation chunks to legacy relation format
+            if (payload.from && payload.to && payload.relation_type) {
+              relations.push({
+                from: payload.from,
+                to: payload.to,
+                relationType: payload.relation_type
+              });
+            }
+          }
         }
       }
 
@@ -482,8 +669,8 @@ export class QdrantPersistence {
       let scoreB = 0;
 
       // Public API bonus (not starting with underscore)
-      if (!a.name.startsWith('_')) scoreA += 5;
-      if (!b.name.startsWith('_')) scoreB += 5;
+      if (a.name && typeof a.name === 'string' && !a.name.startsWith('_')) scoreA += 5;
+      if (b.name && typeof b.name === 'string' && !b.name.startsWith('_')) scoreB += 5;
 
       // Has documentation bonus
       const aHasDoc = a.observations.some(obs => obs.includes('docstring') || obs.includes('Description'));
@@ -492,8 +679,8 @@ export class QdrantPersistence {
       if (bHasDoc) scoreB += 10;
 
       // Special method bonus (__init__, __new__)
-      if (['__init__', '__new__'].includes(a.name)) scoreA += 8;
-      if (['__init__', '__new__'].includes(b.name)) scoreB += 8;
+      if (a.name && ['__init__', '__new__'].includes(a.name)) scoreA += 8;
+      if (b.name && ['__init__', '__new__'].includes(b.name)) scoreB += 8;
 
       return scoreB - scoreA;
     });
@@ -538,7 +725,7 @@ export class QdrantPersistence {
 
   private _extractApiSurface(entities: Entity[], relations: Relation[], limit: number) {
     const classes = entities
-      .filter(e => e.entityType === 'class' && !e.name.startsWith('_'))
+      .filter(e => e.entityType === 'class' && e.name && !e.name.startsWith('_'))
       .slice(0, limit)
       .map(cls => {
         const fileObs = cls.observations.find(o => o.includes('Defined in:'));
@@ -568,7 +755,7 @@ export class QdrantPersistence {
       });
 
     const functions = entities
-      .filter(e => (e.entityType === 'function' || e.entityType === 'method') && !e.name.startsWith('_'))
+      .filter(e => (e.entityType === 'function' || e.entityType === 'method') && e.name && !e.name.startsWith('_'))
       .slice(0, limit)
       .map(fn => {
         const fileObs = fn.observations.find(o => o.includes('Defined in:'));

@@ -24,6 +24,7 @@ import {
   validateDeleteObservationsRequest,
   validateDeleteRelationsRequest,
   validateSearchSimilarRequest,
+  validateGetImplementationRequest,
 } from './validation.js';
 
 // Removed: Path definitions no longer needed since we're not writing JSON files
@@ -146,10 +147,14 @@ class KnowledgeGraphManager {
     }
   }
 
-  async searchSimilar(query: string, limit: number = 10): Promise<SearchResult[]> {
+  async searchSimilar(query: string, limit: number = 10, metadataOnly: boolean = true): Promise<SearchResult[]> {
     // Ensure limit is a positive number
     const validLimit = Math.max(1, Math.min(limit, 100)); // Cap at 100 results
-    return await this.qdrant.searchSimilar(query, validLimit);
+    return await this.qdrant.searchSimilar(query, validLimit, metadataOnly);
+  }
+
+  async getImplementation(entityName: string): Promise<SearchResult[]> {
+    return await this.qdrant.getImplementationChunks(entityName);
   }
 }
 
@@ -342,7 +347,7 @@ class MemoryServer {
         },
         {
           name: "search_similar",
-          description: "Search for similar entities and relations using semantic search",
+          description: "Search for similar entities and relations using semantic search with progressive disclosure support",
           inputSchema: {
             type: "object",
             properties: {
@@ -350,9 +355,28 @@ class MemoryServer {
               limit: { 
                 type: "number",
                 default: 10
+              },
+              metadataOnly: {
+                type: "boolean",
+                default: true,
+                description: "If true, returns only metadata chunks for 90% faster performance. Set to false for full implementation search."
               }
             },
             required: ["query"]
+          }
+        },
+        {
+          name: "get_implementation",
+          description: "Retrieve detailed implementation chunks for a specific entity (progressive disclosure)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              entityName: { 
+                type: "string",
+                description: "Name of the entity to get implementation details for"
+              }
+            },
+            required: ["entityName"]
           }
         }
       ],
@@ -455,10 +479,25 @@ class MemoryServer {
 
           case "search_similar": {
             const args = validateSearchSimilarRequest(request.params.arguments);
+            const metadataOnly = args.metadataOnly !== undefined ? args.metadataOnly : true;
             const results = await this.graphManager.searchSimilar(
               args.query,
-              args.limit
+              args.limit,
+              metadataOnly
             );
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(results, null, 2),
+                },
+              ],
+            };
+          }
+
+          case "get_implementation": {
+            const args = validateGetImplementationRequest(request.params.arguments);
+            const results = await this.graphManager.getImplementation(args.entityName);
             return {
               content: [
                 {

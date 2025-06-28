@@ -34,6 +34,11 @@ export interface DeleteRelationsRequest {
 export interface SearchSimilarRequest {
   query: string;
   limit?: number;
+  metadataOnly?: boolean;
+}
+
+export interface GetImplementationRequest {
+  entityName: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -158,7 +163,7 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
     throw new McpError(ErrorCode.InvalidParams, "Invalid request format");
   }
 
-  const { query, limit } = args;
+  const { query, limit, metadataOnly } = args;
   if (typeof query !== 'string') {
     throw new McpError(ErrorCode.InvalidParams, "Missing or invalid query string");
   }
@@ -167,5 +172,22 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
     throw new McpError(ErrorCode.InvalidParams, "Invalid limit value");
   }
 
-  return { query, limit };
+  if (metadataOnly !== undefined && typeof metadataOnly !== 'boolean') {
+    throw new McpError(ErrorCode.InvalidParams, "Invalid metadataOnly value");
+  }
+
+  return { query, limit, metadataOnly };
+}
+
+export function validateGetImplementationRequest(args: unknown): GetImplementationRequest {
+  if (!isRecord(args)) {
+    throw new McpError(ErrorCode.InvalidParams, "Invalid request format");
+  }
+
+  const { entityName } = args;
+  if (typeof entityName !== 'string') {
+    throw new McpError(ErrorCode.InvalidParams, "Missing or invalid entityName string");
+  }
+
+  return { entityName };
 }
