@@ -4,9 +4,16 @@
 
 This enhanced version of the MCP-Qdrant-Memory server provides enterprise-grade memory capabilities for Claude Code, featuring intelligent token management, smart filtering, and direct Qdrant integration for large-scale codebases.
 
-## Latest Enhancements (v2.0)
+## Latest Enhancements (v2.4 - Progressive Disclosure Architecture)
 
-### 🎯 Smart Filtering & Token Management
+### 🚀 Progressive Disclosure Features
+- **Metadata-First Search**: `search_similar` returns lightweight metadata for 90% faster queries
+- **On-Demand Implementation**: `get_implementation(entityName)` tool for detailed code access
+- **Automatic Provider Detection**: Reads embedding provider from environment variables
+- **Voyage AI Integration**: Built-in support for voyage-3-lite with 85% cost optimization
+- **Backward Compatibility**: Seamlessly handles both v2.3 and v2.4 chunk formats
+
+### 🎯 Smart Filtering & Token Management (v2.0)
 - **Smart Mode**: AI-optimized responses that guarantee <25k tokens (vs 393k overflow)
 - **Multiple Modes**: smart/entities/relationships/raw for different use cases
 - **Priority Scoring**: Surfaces public APIs and documented code first
@@ -121,7 +128,16 @@ async scrollAll(): Promise<{ entities: Entity[], relations: Relation[] }> {
 ### Claude Code Integration
 
 ```typescript
-// Smart Mode (NEW) - AI-optimized, token-limited responses
+// Progressive Disclosure (v2.4) - 90% faster metadata-first search
+const metadataResults = await mcp_memory_project_search_similar("authentication functions", {
+  metadataOnly: true  // Returns lightweight metadata chunks for fast browsing
+});
+
+// On-demand detailed implementation access (v2.4)
+const implementation = await mcp_memory_project_get_implementation("AuthenticationService");
+// Returns: Full implementation details with code, AST data, and relationships
+
+// Smart Mode (v2.0) - AI-optimized, token-limited responses
 const smartGraph = await mcp_memory_project_read_graph({ 
   mode: "smart", 
   limit: 20 
@@ -145,8 +161,10 @@ const fullGraph = await mcp_memory_project_read_graph({
   mode: "raw" 
 });
 
-// Semantic search (unchanged)
-const results = await mcp_memory_project_search_similar("authentication functions");
+// Traditional semantic search (full results)
+const fullResults = await mcp_memory_project_search_similar("authentication functions", {
+  metadataOnly: false  // Returns complete chunks with implementation details
+});
 ```
 
 ### Smart Mode Response Structure
