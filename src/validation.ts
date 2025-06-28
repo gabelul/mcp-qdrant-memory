@@ -36,6 +36,10 @@ export interface SearchSimilarRequest {
   limit?: number;
 }
 
+export interface GetImplementationRequest {
+  entityName: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -168,4 +172,20 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
   }
 
   return { query, limit };
+}
+
+export function validateGetImplementationRequest(args: unknown): GetImplementationRequest {
+  if (!isRecord(args)) {
+    throw new McpError(ErrorCode.InvalidParams, "Invalid request format");
+  }
+
+  // Support both camelCase and snake_case parameter names for compatibility
+  const { entityName, entity_name } = args;
+  const finalEntityName = entityName || entity_name;
+  
+  if (typeof finalEntityName !== 'string') {
+    throw new McpError(ErrorCode.InvalidParams, "Missing or invalid entityName string");
+  }
+
+  return { entityName: finalEntityName };
 }

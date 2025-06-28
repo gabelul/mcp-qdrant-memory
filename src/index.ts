@@ -24,6 +24,7 @@ import {
   validateDeleteObservationsRequest,
   validateDeleteRelationsRequest,
   validateSearchSimilarRequest,
+  validateGetImplementationRequest,
 } from './validation.js';
 
 // Removed: Path definitions no longer needed since we're not writing JSON files
@@ -131,10 +132,10 @@ class KnowledgeGraphManager {
     }
   }
 
-  async getRawGraph(): Promise<KnowledgeGraph> {
+  async getRawGraph(limit?: number): Promise<KnowledgeGraph> {
     try {
-      // Get raw entities and relations from Qdrant without any processing
-      const rawData = await this.qdrant.scrollAll({ mode: 'raw' });
+      // Get limited raw entities and relations from Qdrant for streaming processing
+      const rawData = await this.qdrant.scrollAll({ mode: 'raw', limit });
       if ('entities' in rawData && 'relations' in rawData) {
         return rawData as KnowledgeGraph;
       }
@@ -150,6 +151,10 @@ class KnowledgeGraphManager {
     // Ensure limit is a positive number
     const validLimit = Math.max(1, Math.min(limit, 100)); // Cap at 100 results
     return await this.qdrant.searchSimilar(query, validLimit);
+  }
+
+  async getImplementation(entityName: string): Promise<SearchResult[]> {
+    return await this.qdrant.getImplementationChunks(entityName);
   }
 }
 
@@ -342,7 +347,7 @@ class MemoryServer {
         },
         {
           name: "search_similar",
-          description: "Search for similar entities and relations using semantic search",
+          description: "Search for similar entities and relations using semantic search with progressive disclosure support",
           inputSchema: {
             type: "object",
             properties: {
@@ -353,6 +358,20 @@ class MemoryServer {
               }
             },
             required: ["query"]
+          }
+        },
+        {
+          name: "get_implementation",
+          description: "Retrieve detailed implementation chunks for a specific entity (progressive disclosure)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              entityName: { 
+                type: "string",
+                description: "Name of the entity to get implementation details for"
+              }
+            },
+            required: ["entityName"]
           }
         }
       ],
@@ -432,7 +451,7 @@ class MemoryServer {
             };
             
             // Get raw entities and relations from Qdrant for streaming response
-            const rawGraph = await this.graphManager.getRawGraph();
+            const rawGraph = await this.graphManager.getRawGraph(limit);
             const streamingResponse = await streamingResponseBuilder.buildStreamingResponse(
               rawGraph.entities,
               rawGraph.relations,
@@ -459,6 +478,19 @@ class MemoryServer {
               args.query,
               args.limit
             );
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(results, null, 2),
+                },
+              ],
+            };
+          }
+
+          case "get_implementation": {
+            const args = validateGetImplementationRequest(request.params.arguments);
+            const results = await this.graphManager.getImplementation(args.entityName);
             return {
               content: [
                 {

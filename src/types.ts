@@ -15,10 +15,21 @@ export interface KnowledgeGraph {
   relations: Relation[];
 }
 
+export interface EntityChunk extends Record<string, unknown> {
+  id: string;
+  entity_name: string;
+  entity_type: string;
+  chunk_type: 'metadata' | 'implementation';
+  content: string;
+  file_path?: string;
+  line_number?: number;
+  has_implementation?: boolean;
+}
+
 export interface SearchResult {
-  type: 'entity' | 'relation';
+  type: 'chunk';
   score: number;
-  data: Entity | Relation;
+  data: EntityChunk;
 }
 
 export interface SmartGraph {

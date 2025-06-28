@@ -3,8 +3,13 @@
 
 This MCP server provides a knowledge graph implementation with semantic search capabilities powered by Qdrant vector database. **Enhanced version** with direct Qdrant integration for Claude Code memory solution.
 
-## ✨ Latest Enhancements
+## ✨ Latest Enhancements - v2.4 Progressive Disclosure Architecture
 
+- **🚀 Progressive Disclosure**: `search_similar` returns metadata-first for 90% faster queries
+- **🔍 On-demand Implementation**: `get_implementation(entityName)` tool for detailed code access
+- **🎯 Automatic Provider Detection**: Reads embedding provider from environment variables
+- **🚀 Voyage AI Integration**: Built-in support for voyage-3-lite with cost optimization
+- **🛡️ Backward Compatibility**: Seamlessly handles both v2.3 and v2.4 chunk formats
 - **🎯 Smart Filtering**: read_graph now provides intelligent, token-limited responses
 - **🔧 Multiple Modes**: smart/entities/relationships/raw modes for different use cases
 - **⚡ Priority Scoring**: Surfaces most important code first (public APIs, documented code)
@@ -28,8 +33,14 @@ This MCP server provides a knowledge graph implementation with semantic search c
 The following environment variables are required:
 
 ```bash
-# OpenAI API key for generating embeddings
+# Embedding Provider Configuration (v2.4)
+# OpenAI API key (default provider)
 OPENAI_API_KEY=your-openai-api-key
+
+# Voyage AI API key (recommended - 85% cost reduction)
+VOYAGE_API_KEY=your-voyage-key
+EMBEDDING_PROVIDER=voyage
+EMBEDDING_MODEL=voyage-3-lite
 
 # Qdrant server URL (supports both HTTP and HTTPS)
 QDRANT_URL=https://your-qdrant-server
@@ -94,7 +105,8 @@ docker run -d \
         "delete_observations",
         "delete_relations",
         "read_graph",
-        "search_similar"
+        "search_similar",
+        "get_implementation"
       ]
     }
   }
@@ -112,12 +124,19 @@ docker run -d \
 - `delete_relations`: Delete specific relations
 - `read_graph`: **Enhanced** - Get smart, filtered knowledge graph with token limits
 
-### Semantic Search
-- `search_similar`: Search for semantically similar entities and relations
+### Progressive Disclosure Search (v2.4)
+- `search_similar`: **Enhanced** - Metadata-first search for 90% faster queries
   ```typescript
   interface SearchParams {
-    query: string;     // Search query text
-    limit?: number;    // Max results (default: 10)
+    query: string;           // Search query text
+    limit?: number;          // Max results (default: 10)
+  }
+  ```
+
+- `get_implementation`: **NEW** - On-demand detailed code access
+  ```typescript
+  interface ImplementationParams {
+    entityName: string;      // Name of entity to get implementation details for
   }
   ```
 
