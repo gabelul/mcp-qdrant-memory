@@ -179,10 +179,13 @@ export function validateGetImplementationRequest(args: unknown): GetImplementati
     throw new McpError(ErrorCode.InvalidParams, "Invalid request format");
   }
 
-  const { entityName } = args;
-  if (typeof entityName !== 'string') {
+  // Support both camelCase and snake_case parameter names for compatibility
+  const { entityName, entity_name } = args;
+  const finalEntityName = entityName || entity_name;
+  
+  if (typeof finalEntityName !== 'string') {
     throw new McpError(ErrorCode.InvalidParams, "Missing or invalid entityName string");
   }
 
-  return { entityName };
+  return { entityName: finalEntityName };
 }
