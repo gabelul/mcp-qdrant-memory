@@ -147,10 +147,10 @@ class KnowledgeGraphManager {
     }
   }
 
-  async searchSimilar(query: string, limit: number = 10, metadataOnly: boolean = true): Promise<SearchResult[]> {
+  async searchSimilar(query: string, limit: number = 10): Promise<SearchResult[]> {
     // Ensure limit is a positive number
     const validLimit = Math.max(1, Math.min(limit, 100)); // Cap at 100 results
-    return await this.qdrant.searchSimilar(query, validLimit, metadataOnly);
+    return await this.qdrant.searchSimilar(query, validLimit);
   }
 
   async getImplementation(entityName: string): Promise<SearchResult[]> {
@@ -355,11 +355,6 @@ class MemoryServer {
               limit: { 
                 type: "number",
                 default: 10
-              },
-              metadataOnly: {
-                type: "boolean",
-                default: true,
-                description: "If true, returns only metadata chunks for 90% faster performance. Set to false for full implementation search."
               }
             },
             required: ["query"]
@@ -479,11 +474,9 @@ class MemoryServer {
 
           case "search_similar": {
             const args = validateSearchSimilarRequest(request.params.arguments);
-            const metadataOnly = args.metadataOnly !== undefined ? args.metadataOnly : true;
             const results = await this.graphManager.searchSimilar(
               args.query,
-              args.limit,
-              metadataOnly
+              args.limit
             );
             return {
               content: [

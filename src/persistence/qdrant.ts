@@ -363,7 +363,7 @@ export class QdrantPersistence {
     });
   }
 
-  async searchSimilar(query: string, limit: number = 10, metadataOnly: boolean = true) {
+  async searchSimilar(query: string, limit: number = 10) {
     await this.connect();
     if (!COLLECTION_NAME) {
       throw new Error("COLLECTION_NAME environment variable is required");
@@ -371,16 +371,13 @@ export class QdrantPersistence {
 
     const queryVector = await this.generateEmbedding(query);
 
-    // Build search filter for progressive disclosure
-    let filter: any = undefined;
-    if (metadataOnly) {
-      // Filter for metadata chunks only (90% faster performance)
-      filter = {
-        must: [
-          { key: "chunk_type", match: { value: "metadata" } }
-        ]
-      };
-    }
+    // Always use metadata-only filter for 90% faster performance
+    // Use get_implementation for detailed code access when needed
+    const filter = {
+      must: [
+        { key: "chunk_type", match: { value: "metadata" } }
+      ]
+    };
 
     const results = await this.client.search(COLLECTION_NAME, {
       vector: queryVector,

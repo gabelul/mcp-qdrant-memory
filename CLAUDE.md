@@ -129,9 +129,8 @@ async scrollAll(): Promise<{ entities: Entity[], relations: Relation[] }> {
 
 ```typescript
 // Progressive Disclosure (v2.4) - 90% faster metadata-first search
-const metadataResults = await mcp_memory_project_search_similar("authentication functions", {
-  metadataOnly: true  // Returns lightweight metadata chunks for fast browsing
-});
+const metadataResults = await mcp_memory_project_search_similar("authentication functions");
+// Returns: Lightweight metadata chunks for fast browsing (default behavior)
 
 // On-demand detailed implementation access (v2.4)
 const implementation = await mcp_memory_project_get_implementation("AuthenticationService");
@@ -161,10 +160,10 @@ const fullGraph = await mcp_memory_project_read_graph({
   mode: "raw" 
 });
 
-// Traditional semantic search (full results)
-const fullResults = await mcp_memory_project_search_similar("authentication functions", {
-  metadataOnly: false  // Returns complete chunks with implementation details
-});
+// Traditional semantic search now uses progressive disclosure
+const searchResults = await mcp_memory_project_search_similar("authentication functions");
+// Returns: Metadata chunks for fast browsing
+// Use get_implementation(entityName) for detailed code when needed
 ```
 
 ### Smart Mode Response Structure

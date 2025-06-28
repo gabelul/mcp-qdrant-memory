@@ -130,7 +130,6 @@ docker run -d \
   interface SearchParams {
     query: string;           // Search query text
     limit?: number;          // Max results (default: 10)
-    metadataOnly?: boolean;  // Return metadata only for faster performance (default: true)
   }
   ```
 

@@ -34,7 +34,6 @@ export interface DeleteRelationsRequest {
 export interface SearchSimilarRequest {
   query: string;
   limit?: number;
-  metadataOnly?: boolean;
 }
 
 export interface GetImplementationRequest {
@@ -163,7 +162,7 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
     throw new McpError(ErrorCode.InvalidParams, "Invalid request format");
   }
 
-  const { query, limit, metadataOnly } = args;
+  const { query, limit } = args;
   if (typeof query !== 'string') {
     throw new McpError(ErrorCode.InvalidParams, "Missing or invalid query string");
   }
@@ -172,11 +171,7 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
     throw new McpError(ErrorCode.InvalidParams, "Invalid limit value");
   }
 
-  if (metadataOnly !== undefined && typeof metadataOnly !== 'boolean') {
-    throw new McpError(ErrorCode.InvalidParams, "Invalid metadataOnly value");
-  }
-
-  return { query, limit, metadataOnly };
+  return { query, limit };
 }
 
 export function validateGetImplementationRequest(args: unknown): GetImplementationRequest {
