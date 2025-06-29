@@ -35,4 +35,7 @@ coverage/
 
 # Misc
 .tmp/
-.temp/ 
+.temp/
+
+# Qdrant storage
+qdrant_storage/ 

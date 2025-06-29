@@ -1,7 +1,7 @@
 {
   "name": "@delorenj/mcp-qdrant-memory",
-  "version": "0.2.4",
-  "description": "MCP server for enabling the named memory graphs to be persisted to a qdrant instance.",
+  "version": "0.2.5",
+  "description": "MCP server with semantic scope implementation access and enhanced progressive disclosure for Claude Code memory.",
   "license": "MIT",
   "author": "Jarad DeLorenzo",
   "homepage": "https://github.com/delorenj/mcp-qdrant-memory",

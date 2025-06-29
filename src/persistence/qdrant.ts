@@ -7,7 +7,7 @@ import {
   OPENAI_API_KEY,
   QDRANT_API_KEY
 } from "../config.js";
-import { Entity, Relation, SmartGraph, ScrollOptions, KnowledgeGraph, SearchResult } from "../types.js";
+import { Entity, Relation, SmartGraph, ScrollOptions, KnowledgeGraph, SearchResult, SemanticMetadata } from "../types.js";
 
 // Create custom Qdrant client that adds auth header
 class CustomQdrantClient extends QdrantClient {
@@ -416,15 +416,38 @@ export class QdrantPersistence {
     return validResults;
   }
 
-  async getImplementationChunks(entityName: string): Promise<SearchResult[]> {
+  async getImplementationChunks(
+    entityName: string, 
+    scope: 'minimal' | 'logical' | 'dependencies' = 'minimal'
+  ): Promise<SearchResult[]> {
     await this.connect();
     if (!COLLECTION_NAME) {
       throw new Error("COLLECTION_NAME environment variable is required");
     }
 
+    // Base implementation for minimal scope
+    const baseResults = await this.getEntityImplementation(entityName);
+    
+    if (scope === 'minimal') return baseResults;
+    
+    // Extract semantic metadata for scope expansion
+    const metadata = this.extractSemanticMetadata(baseResults);
+    
+    if (scope === 'logical') {
+      return this.expandLogicalScope(baseResults, metadata);
+    }
+    
+    if (scope === 'dependencies') {
+      return this.expandDependencyScope(baseResults, metadata);
+    }
+    
+    return baseResults;
+  }
+
+  private async getEntityImplementation(entityName: string): Promise<SearchResult[]> {
     try {
       // Search for implementation chunks for the specific entity
-      const results = await this.client.search(COLLECTION_NAME, {
+      const results = await this.client.search(COLLECTION_NAME!, {
         vector: new Array(this.vectorSize).fill(0), // Dummy vector for filter-only search
         limit: 50, // Reasonable limit for implementation chunks
         with_payload: true,
@@ -460,6 +483,194 @@ export class QdrantPersistence {
       console.error(`Failed to get implementation chunks for ${entityName}:`, error);
       return [];
     }
+  }
+
+  private extractSemanticMetadata(baseResults: SearchResult[]): SemanticMetadata {
+    if (baseResults.length === 0) {
+      return { calls: [], imports_used: [], file_path: undefined };
+    }
+
+    const firstResult = baseResults[0];
+    const filePath = firstResult.data.file_path;
+
+    // Use structured semantic metadata from indexing process if available
+    const structuredMetadata = (firstResult.data as any).semantic_metadata;
+    if (structuredMetadata) {
+      return {
+        calls: structuredMetadata.calls || [],
+        imports_used: structuredMetadata.imports_used || [],
+        file_path: filePath,
+        exceptions_handled: structuredMetadata.exceptions_handled || [],
+        complexity: structuredMetadata.complexity,
+        inferred_types: structuredMetadata.inferred_types || []
+      };
+    }
+
+    // Fallback to content parsing if structured metadata not available
+    const content = firstResult.data.content;
+    const metadata: SemanticMetadata = {
+      calls: this.extractCalls(content),
+      imports_used: this.extractImports(content),
+      file_path: filePath
+    };
+
+    return metadata;
+  }
+
+  private extractCalls(content: string): string[] {
+    // Simple regex to find function calls - in production this would use AST
+    const callMatches = content.match(/(\w+)\s*\(/g) || [];
+    return callMatches
+      .map(match => match.replace(/\s*\($/, ''))
+      .filter(call => call.length > 1)
+      .slice(0, 10); // Limit to prevent overwhelming results
+  }
+
+  private extractImports(content: string): string[] {
+    // Simple regex to find imports - in production this would use AST  
+    const importMatches = content.match(/(?:import|from)\s+(\w+)/g) || [];
+    return importMatches
+      .map(match => match.replace(/(?:import|from)\s+/, ''))
+      .filter(imp => imp.length > 0)
+      .slice(0, 10); // Limit to prevent overwhelming results
+  }
+
+  private async expandLogicalScope(
+    baseResults: SearchResult[], 
+    metadata: SemanticMetadata
+  ): Promise<SearchResult[]> {
+    if (!metadata.file_path) {
+      return baseResults;
+    }
+
+    try {
+      // Query for functions called by this entity AND private helper functions in the same file
+      const searchCriteria = [];
+      
+      // Add called functions if available
+      if (metadata.calls && metadata.calls.length > 0) {
+        searchCriteria.push({ key: "entity_name", match: { any: metadata.calls } });
+      }
+      
+      // Also search for private helper functions (starting with _) in the same file
+      const helperResults = await this.client.search(COLLECTION_NAME!, {
+        vector: new Array(this.vectorSize).fill(0),
+        limit: 20,
+        with_payload: true,
+        filter: {
+          must: [
+            { key: "file_path", match: { value: metadata.file_path } },
+            { key: "chunk_type", match: { value: "implementation" } }
+          ],
+          should: searchCriteria
+        }
+      });
+
+      const additionalResults: SearchResult[] = [];
+      for (const result of helperResults) {
+        if (!result.payload) continue;
+        const payload = result.payload as unknown as any;
+        
+        // Include if it's called by the entity OR if it's a private helper function in same file
+        const entityName = payload.entity_name || '';
+        const isCalled = metadata.calls?.includes(entityName);
+        const isPrivateHelper = entityName.startsWith('_');
+        
+        if (isCalled || isPrivateHelper) {
+          additionalResults.push({
+            type: 'chunk',
+            score: result.score,
+            data: {
+              ...payload,
+              has_implementation: false
+            }
+          });
+        }
+      }
+
+      return this.mergeAndDeduplicate([...baseResults, ...additionalResults]);
+    } catch (error) {
+      console.error('Failed to expand logical scope:', error);
+      return baseResults;
+    }
+  }
+
+  private async expandDependencyScope(
+    baseResults: SearchResult[], 
+    metadata: SemanticMetadata
+  ): Promise<SearchResult[]> {
+    const imports = metadata.imports_used || [];
+    const calls = metadata.calls || [];
+    
+    if (imports.length === 0 && calls.length === 0) {
+      return baseResults;
+    }
+
+    try {
+      // Query for imported dependencies
+      const dependencyResults = await this.client.search(COLLECTION_NAME!, {
+        vector: new Array(this.vectorSize).fill(0),
+        limit: 30,
+        with_payload: true,
+        filter: {
+          must: [
+            { key: "chunk_type", match: { value: "implementation" } }
+          ],
+          should: [
+            { key: "entity_name", match: { any: imports } },
+            { key: "entity_name", match: { any: calls } }
+          ]
+        }
+      });
+
+      const additionalResults: SearchResult[] = [];
+      for (const result of dependencyResults) {
+        if (!result.payload) continue;
+        const payload = result.payload as unknown as any;
+        
+        additionalResults.push({
+          type: 'chunk',
+          score: result.score,
+          data: {
+            ...payload,
+            has_implementation: false
+          }
+        });
+      }
+
+      return this.mergeAndDeduplicate([...baseResults, ...additionalResults]);
+    } catch (error) {
+      console.error('Failed to expand dependency scope:', error);
+      return baseResults;
+    }
+  }
+
+  private mergeAndDeduplicate(results: SearchResult[]): SearchResult[] {
+    const entityMap = new Map<string, SearchResult>();
+
+    for (const result of results) {
+      const key = result.data.entity_name || 'unknown';
+      const existing = entityMap.get(key);
+      
+      // Keep the result with the highest relevance score
+      if (!existing || result.score > existing.score) {
+        entityMap.set(key, result);
+      }
+    }
+
+    // Return results in original insertion order for predictable results
+    const deduplicated: SearchResult[] = [];
+    const processedKeys = new Set<string>();
+    
+    for (const result of results) {
+      const key = result.data.entity_name || 'unknown';
+      if (!processedKeys.has(key)) {
+        processedKeys.add(key);
+        deduplicated.push(entityMap.get(key)!);
+      }
+    }
+
+    return deduplicated;
   }
 
   private async _checkImplementationExists(entityName: string): Promise<boolean> {

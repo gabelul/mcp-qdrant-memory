@@ -3,10 +3,15 @@
 
 This MCP server provides a knowledge graph implementation with semantic search capabilities powered by Qdrant vector database. **Enhanced version** with direct Qdrant integration for Claude Code memory solution.
 
-## ✨ Latest Enhancements - v2.4 Progressive Disclosure Architecture
+## ✨ Latest Enhancements - v2.4.1 Semantic Scope Architecture
 
 - **🚀 Progressive Disclosure**: `search_similar` returns metadata-first for 90% faster queries
-- **🔍 On-demand Implementation**: `get_implementation(entityName)` tool for detailed code access
+- **🎯 Semantic Scope Implementation**: `get_implementation(entityName, scope?)` with contextual code retrieval
+  - **`minimal`**: Just the entity implementation (default, backward compatible)
+  - **`logical`**: Entity + helper functions/classes from same file (analyzes calls + `_` prefixed helpers)
+  - **`dependencies`**: Entity + imported modules and called functions (cross-file relationships)
+- **🧠 Smart Metadata Usage**: Leverages structured semantic metadata from indexing process
+- **⚡ Performance Optimized**: Configurable limits (20 logical, 30 dependencies) with smart deduplication
 - **🎯 Automatic Provider Detection**: Reads embedding provider from environment variables
 - **🚀 Voyage AI Integration**: Built-in support for voyage-3-lite with cost optimization
 - **🛡️ Backward Compatibility**: Seamlessly handles both v2.3 and v2.4 chunk formats
@@ -133,11 +138,29 @@ docker run -d \
   }
   ```
 
-- `get_implementation`: **NEW** - On-demand detailed code access
+- `get_implementation`: **ENHANCED** - Semantic scope implementation access (v2.4.1)
   ```typescript
   interface ImplementationParams {
-    entityName: string;      // Name of entity to get implementation details for
+    entityName: string;              // Name of entity to get implementation details for
+    scope?: 'minimal' | 'logical' | 'dependencies';  // Scope of related code (default: 'minimal')
   }
+  ```
+  
+  **Scope Types:**
+  - **`minimal`** (default): Returns only the requested entity's implementation
+  - **`logical`**: Returns entity + helper functions/classes from same file (analyzes calls + `_` prefixed helpers)
+  - **`dependencies`**: Returns entity + imported modules and called functions (cross-file relationships)
+  
+  **Usage Examples:**
+  ```typescript
+  // Get just the parseAST function implementation
+  await get_implementation("parseAST")
+  
+  // Get parseAST + its same-file helpers (_extract_nodes, _validate_syntax)
+  await get_implementation("parseAST", "logical")
+  
+  // Get parseAST + external dependencies (TreeSitter.parse, ast.walk, etc.)
+  await get_implementation("parseAST", "dependencies")
   ```
 
 ## Implementation Details

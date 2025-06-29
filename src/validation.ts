@@ -38,6 +38,7 @@ export interface SearchSimilarRequest {
 
 export interface GetImplementationRequest {
   entityName: string;
+  scope?: 'minimal' | 'logical' | 'dependencies';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -180,12 +181,22 @@ export function validateGetImplementationRequest(args: unknown): GetImplementati
   }
 
   // Support both camelCase and snake_case parameter names for compatibility
-  const { entityName, entity_name } = args;
+  const { entityName, entity_name, scope } = args;
   const finalEntityName = entityName || entity_name;
   
   if (typeof finalEntityName !== 'string') {
     throw new McpError(ErrorCode.InvalidParams, "Missing or invalid entityName string");
   }
 
-  return { entityName: finalEntityName };
+  const validScopes = ['minimal', 'logical', 'dependencies'];
+  const finalScope = scope || 'minimal';
+  
+  if (typeof finalScope !== 'string' || !validScopes.includes(finalScope)) {
+    throw new McpError(ErrorCode.InvalidParams, "Invalid scope. Must be: minimal, logical, or dependencies");
+  }
+
+  return { 
+    entityName: finalEntityName,
+    scope: finalScope as 'minimal' | 'logical' | 'dependencies'
+  };
 }

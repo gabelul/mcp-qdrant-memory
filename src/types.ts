@@ -104,3 +104,12 @@ export interface ContentSection {
   tokenCount: number;
   priority: number;
 }
+
+export interface SemanticMetadata {
+  calls: string[];
+  imports_used: string[];
+  file_path?: string;
+  exceptions_handled?: string[];
+  complexity?: number;
+  inferred_types?: string[];
+}

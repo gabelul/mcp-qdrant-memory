@@ -8,11 +8,13 @@ This enhanced version of the MCP-Qdrant-Memory server provides enterprise-grade 
 
 ### 🚀 Progressive Disclosure Features - ✅ VALIDATED
 - ✅ **Metadata-First Search**: `search_similar` returns lightweight metadata - 3.99ms validated
-- ✅ **On-Demand Implementation**: `get_implementation(entityName)` tool - fully functional
+- ✅ **On-Demand Implementation**: `get_implementation(entityName, scope?)` tool with semantic scope control
+- ✅ **Semantic Scope Levels**: minimal (entity only), logical (same-file helpers), dependencies (imports/calls)
 - ✅ **Automatic Provider Detection**: Reads embedding provider from environment variables
 - ✅ **Voyage AI Integration**: Built-in support for voyage-3-lite with 85% cost optimization
 - ✅ **Backward Compatibility**: Seamlessly handles both v2.3 and v2.4 chunk formats
 - ✅ **Performance Validated**: 3.63ms full MCP workflow (sub-4ms target achieved)
+- ✅ **Smart Token Management**: Configurable limits per scope (20 logical, 30 dependencies)
 
 ### 🎯 Smart Filtering & Token Management (v2.0)
 - **Smart Mode**: AI-optimized responses that guarantee <25k tokens (vs 393k overflow)
@@ -133,9 +135,18 @@ async scrollAll(): Promise<{ entities: Entity[], relations: Relation[] }> {
 const metadataResults = await mcp_memory_project_search_similar("authentication functions");
 // Returns: Lightweight metadata chunks for fast browsing (default behavior)
 
-// On-demand detailed implementation access (v2.4)
-const implementation = await mcp_memory_project_get_implementation("AuthenticationService");
-// Returns: Full implementation details with code, AST data, and relationships
+// Enhanced Semantic Scope Implementation Access (v2.4.1)
+// Minimal scope (default - current behavior)
+const minimal = await mcp_memory_project_get_implementation("AuthenticationService");
+// Returns: Just the AuthenticationService implementation
+
+// Logical scope (same-file helpers)
+const logical = await mcp_memory_project_get_implementation("AuthenticationService", "logical");
+// Returns: AuthenticationService + helper functions/classes in same file
+
+// Dependencies scope (imports and function calls)
+const dependencies = await mcp_memory_project_get_implementation("AuthenticationService", "dependencies");
+// Returns: AuthenticationService + imported modules and called functions
 
 // Smart Mode (v2.0) - AI-optimized, token-limited responses
 const smartGraph = await mcp_memory_project_read_graph({ 
@@ -164,7 +175,38 @@ const fullGraph = await mcp_memory_project_read_graph({
 // Traditional semantic search now uses progressive disclosure
 const searchResults = await mcp_memory_project_search_similar("authentication functions");
 // Returns: Metadata chunks for fast browsing
-// Use get_implementation(entityName) for detailed code when needed
+// Use get_implementation(entityName, scope) for detailed code when needed
+
+### Semantic Scope Parameters (v2.4.1)
+
+#### Scope Types:
+1. **`minimal`** (default): Returns only the requested entity's implementation
+   - Use case: Focused code inspection of a specific function/class
+   - Token usage: ~500-2000 tokens
+   - Performance: Fastest option
+
+2. **`logical`**: Returns entity + helper functions/classes from the same file
+   - Use case: Understanding a function and its local context
+   - Discovery: Analyzes function calls within the same file_path
+   - Token usage: ~2000-5000 tokens
+   - Limit: Up to 20 additional results
+
+3. **`dependencies`**: Returns entity + imported functions/classes it uses
+   - Use case: Understanding external dependencies and cross-file relationships
+   - Discovery: Follows imports and function calls to other modules
+   - Token usage: ~5000-15000 tokens
+   - Limit: Up to 30 additional results
+
+#### Usage Examples:
+```typescript
+// Get just the parseAST function
+const minimal = await get_implementation("parseAST");
+
+// Get parseAST + its helpers (_extract_nodes, _validate_syntax) from same file
+const logical = await get_implementation("parseAST", "logical");
+
+// Get parseAST + external dependencies (TreeSitter.parse, ast.walk, etc.)
+const dependencies = await get_implementation("parseAST", "dependencies");
 ```
 
 ### Smart Mode Response Structure

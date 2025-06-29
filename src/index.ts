@@ -153,8 +153,8 @@ class KnowledgeGraphManager {
     return await this.qdrant.searchSimilar(query, validLimit);
   }
 
-  async getImplementation(entityName: string): Promise<SearchResult[]> {
-    return await this.qdrant.getImplementationChunks(entityName);
+  async getImplementation(entityName: string, scope: 'minimal' | 'logical' | 'dependencies' = 'minimal'): Promise<SearchResult[]> {
+    return await this.qdrant.getImplementationChunks(entityName, scope);
   }
 }
 
@@ -173,7 +173,7 @@ class MemoryServer {
     this.server = new Server(
       {
         name: "memory",
-        version: "0.6.2",
+        version: "0.6.3",
       },
       {
         capabilities: {
@@ -362,13 +362,19 @@ class MemoryServer {
         },
         {
           name: "get_implementation",
-          description: "Retrieve detailed implementation chunks for a specific entity (progressive disclosure)",
+          description: "Retrieve implementation with semantic scope control",
           inputSchema: {
             type: "object",
             properties: {
               entityName: { 
                 type: "string",
-                description: "Name of the entity to get implementation details for"
+                description: "Name of the entity to retrieve"
+              },
+              scope: {
+                type: "string",
+                enum: ["minimal", "logical", "dependencies"],
+                default: "minimal",
+                description: "Scope of related code to include: minimal (entity only), logical (same-file helpers), dependencies (imports and calls)"
               }
             },
             required: ["entityName"]
@@ -490,7 +496,7 @@ class MemoryServer {
 
           case "get_implementation": {
             const args = validateGetImplementationRequest(request.params.arguments);
-            const results = await this.graphManager.getImplementation(args.entityName);
+            const results = await this.graphManager.getImplementation(args.entityName, args.scope);
             return {
               content: [
                 {
