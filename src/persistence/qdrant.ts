@@ -555,7 +555,7 @@ export class QdrantPersistence {
       // Also search for private helper functions (starting with _) in the same file
       const helperResults = await this.client.search(COLLECTION_NAME!, {
         vector: new Array(this.vectorSize).fill(0),
-        limit: 20,
+        limit: 25,
         with_payload: true,
         filter: {
           must: [
@@ -610,7 +610,7 @@ export class QdrantPersistence {
       // Query for imported dependencies
       const dependencyResults = await this.client.search(COLLECTION_NAME!, {
         vector: new Array(this.vectorSize).fill(0),
-        limit: 30,
+        limit: 40,
         with_payload: true,
         filter: {
           must: [
