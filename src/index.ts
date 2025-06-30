@@ -132,10 +132,10 @@ class KnowledgeGraphManager {
     }
   }
 
-  async getRawGraph(limit?: number): Promise<KnowledgeGraph> {
+  async getRawGraph(limit?: number, entityTypes?: string[]): Promise<KnowledgeGraph> {
     try {
       // Get limited raw entities and relations from Qdrant for streaming processing
-      const rawData = await this.qdrant.scrollAll({ mode: 'raw', limit });
+      const rawData = await this.qdrant.scrollAll({ mode: 'raw', limit, entityTypes });
       if ('entities' in rawData && 'relations' in rawData) {
         return rawData as KnowledgeGraph;
       }
@@ -147,7 +147,7 @@ class KnowledgeGraphManager {
     }
   }
 
-  async searchSimilar(query: string, limit: number = 10): Promise<SearchResult[]> {
+  async searchSimilar(query: string, limit: number = 50): Promise<SearchResult[]> {
     // Ensure limit is a positive number
     const validLimit = Math.max(1, Math.min(limit, 100)); // Cap at 100 results
     return await this.qdrant.searchSimilar(query, validLimit);
@@ -347,8 +347,8 @@ class MemoryServer {
               },
               limit: {
                 type: "number",
-                description: "Max entities per type (default: 50)",
-                default: 50
+                description: "Max entities per type (default: 150)",
+                default: 150
               }
             }
           }
@@ -362,7 +362,7 @@ class MemoryServer {
               query: { type: "string" },
               limit: { 
                 type: "number",
-                default: 10
+                default: 50
               }
             },
             required: ["query"]
@@ -457,7 +457,8 @@ class MemoryServer {
             const mode = (request.params.arguments?.mode as 'smart' | 'entities' | 'relationships' | 'raw') || 'smart';
             const entityTypes = request.params.arguments?.entityTypes as string[] | undefined;
             const entity = request.params.arguments?.entity as string | undefined;
-            const limit = (request.params.arguments?.limit as number) || 50;
+            const limit = (request.params.arguments?.limit as number) || 150;
+            
             
             // Handle entity-specific graph
             if (entity) {
@@ -481,7 +482,7 @@ class MemoryServer {
             };
             
             // Get raw entities and relations from Qdrant for streaming response
-            const rawGraph = await this.graphManager.getRawGraph(limit);
+            const rawGraph = await this.graphManager.getRawGraph(limit, entityTypes);
             const streamingResponse = await streamingResponseBuilder.buildStreamingResponse(
               rawGraph.entities,
               rawGraph.relations,

@@ -362,7 +362,7 @@ export class QdrantPersistence {
     });
   }
 
-  async searchSimilar(query: string, limit: number = 10) {
+  async searchSimilar(query: string, limit: number = 50) {
     await this.connect();
     if (!COLLECTION_NAME) {
       throw new Error("COLLECTION_NAME environment variable is required");
@@ -725,27 +725,25 @@ export class QdrantPersistence {
       throw new Error("COLLECTION_NAME environment variable is required");
     }
 
+
     const mode = options?.mode || 'smart';
     const entityTypeFilter = options?.entityTypes;
-    const limitPerType = options?.limit || 50;
+    const limitPerType = options?.limit || 100;
 
-    // First, get raw data from Qdrant with limit enforcement
-    const rawData = await this._getRawData(limitPerType);
+    // First, get raw data from Qdrant with limit enforcement and entityTypes filtering
+    const rawData = await this._getRawData(limitPerType, entityTypeFilter);
 
-    // Apply filtering
+
+    // Qdrant already filtered by entityTypes, no additional filtering needed
     let filteredEntities = rawData.entities;
     let filteredRelations = rawData.relations;
-
-    if (entityTypeFilter && entityTypeFilter.length > 0) {
-      filteredEntities = filteredEntities.filter(e => entityTypeFilter.includes(e.entityType));
-    }
 
     // All modes now return raw data for streaming processing
     // The streaming response builder handles mode-specific formatting with token limits
     return { entities: filteredEntities, relations: filteredRelations };
   }
 
-  private async _getRawData(limit?: number): Promise<{ entities: Entity[], relations: Relation[] }> {
+  private async _getRawData(limit?: number, entityTypes?: string[]): Promise<{ entities: Entity[], relations: Relation[] }> {
     // Convert v2.4 chunks back to legacy format for read_graph compatibility
     const entities: Entity[] = [];
     const relations: Relation[] = [];
@@ -756,14 +754,34 @@ export class QdrantPersistence {
     let entityCount = 0;
     const maxEntities = limit || Number.MAX_SAFE_INTEGER;
 
+    // Build filter for entityTypes if provided
+    const filter: any = {
+      must: [
+        { key: "type", match: { value: "chunk" } }
+      ]
+    };
+    
+    if (entityTypes && entityTypes.length > 0) {
+      // Simple test filter - just metadata entities by type
+      filter.must.push({
+        must: [
+          { key: "chunk_type", match: { value: "metadata" } },
+          { key: "entity_type", match: { any: entityTypes } }
+        ]
+      });
+    }
+
     do {
       const scrollResult = await this.client.scroll(COLLECTION_NAME!, {
         limit: batchSize,
         offset,
         with_payload: true,
         with_vector: false,
+        filter: entityTypes && entityTypes.length > 0 ? filter : undefined
       });
 
+      console.log(`[DEBUG] Scroll batch returned ${scrollResult.points.length} points`);
+      
       for (const point of scrollResult.points) {
         if (!point.payload) continue;
         const payload = point.payload as unknown as ChunkPayload;
@@ -775,6 +793,7 @@ export class QdrantPersistence {
               // Convert metadata chunks to legacy entity format
               // Handle both 'name' and 'entity_name' field variations
               const entityName = (payload as any).entity_name || (payload as any).name || 'unknown';
+              console.log(`[DEBUG] Found metadata entity: ${entityName}, type: ${payload.entity_type}`);
               entities.push({
                 name: entityName,
                 entityType: payload.entity_type,
