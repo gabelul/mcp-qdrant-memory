@@ -33,3 +33,7 @@ for (const test of tests) {
     res.on('end', () => {
       console.log('Response:', data);
     });
+  }).on('error', (err) => {
+    console.error('Error:', err);
+  });
+}

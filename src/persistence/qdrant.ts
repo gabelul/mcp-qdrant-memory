@@ -272,6 +272,7 @@ export class QdrantPersistence {
         body: JSON.stringify({
           input: text,
           model: model,
+          input_type: "document",
         }),
       });
 
@@ -370,13 +371,9 @@ export class QdrantPersistence {
 
     const queryVector = await this.generateEmbedding(query);
 
-    // Always use metadata-only filter for 90% faster performance
-    // Use get_implementation for detailed code access when needed
-    const filter = {
-      must: [
-        { key: "chunk_type", match: { value: "metadata" } }
-      ]
-    };
+    // Search all chunk types to find the highest relevance match
+    // Progressive disclosure handled by separate get_implementation tool
+    const filter = undefined;
 
     const results = await this.client.search(COLLECTION_NAME, {
       vector: queryVector,
@@ -392,7 +389,7 @@ export class QdrantPersistence {
 
       const payload = result.payload as unknown as any;
 
-      if (payload.chunk_type === 'metadata' || payload.chunk_type === 'implementation') {
+      if (payload.chunk_type) {
         // Handle v2.4 chunk format only
         // Handle both 'name' and 'entity_name' field variations
         const entityName = payload.entity_name || (payload as any).name || 'unknown';
@@ -780,7 +777,6 @@ export class QdrantPersistence {
         filter: entityTypes && entityTypes.length > 0 ? filter : undefined
       });
 
-      console.log(`[DEBUG] Scroll batch returned ${scrollResult.points.length} points`);
       
       for (const point of scrollResult.points) {
         if (!point.payload) continue;
@@ -793,7 +789,6 @@ export class QdrantPersistence {
               // Convert metadata chunks to legacy entity format
               // Handle both 'name' and 'entity_name' field variations
               const entityName = (payload as any).entity_name || (payload as any).name || 'unknown';
-              console.log(`[DEBUG] Found metadata entity: ${entityName}, type: ${payload.entity_type}`);
               entities.push({
                 name: entityName,
                 entityType: payload.entity_type,
