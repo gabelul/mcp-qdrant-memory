@@ -1156,12 +1156,14 @@ export class QdrantPersistence {
 
   private async fetchEntitiesByNames(names: string[], limit?: number): Promise<Entity[]> {
     const entities: Entity[] = [];
-    const maxResults = limit || names.length;
+    // Token-aware limit: balance between comprehensive data and token constraints
+    // Based on memory analysis: entities mode can handle ~300, smart mode ~150
+    const tokenAwareLimit = limit || Math.min(names.length, 400);
     
     // Build OR filter for all entity names
     const results = await this.client.search(COLLECTION_NAME!, {
       vector: new Array(this.vectorSize).fill(0), // Dummy vector for filter-only search
-      limit: Math.min(maxResults, 1000), // Cap at reasonable limit
+      limit: tokenAwareLimit, // Token-aware limit instead of hardcoded 1000
       with_payload: true,
       filter: {
         must: [
