@@ -156,6 +156,10 @@ class KnowledgeGraphManager {
   async getImplementation(entityName: string, scope: 'minimal' | 'logical' | 'dependencies' = 'minimal'): Promise<SearchResult[]> {
     return await this.qdrant.getImplementationChunks(entityName, scope);
   }
+
+  async getEntitySpecificGraph(entityName: string, mode: 'smart' | 'entities' | 'relationships' | 'raw' = 'smart', limit?: number): Promise<any> {
+    return await this.qdrant.getEntitySpecificGraph(entityName, mode, limit);
+  }
 }
 
 interface CallToolRequest {
@@ -337,6 +341,10 @@ class MemoryServer {
                 items: { type: "string" },
                 description: "Filter specific entity types (e.g., ['class', 'function'])"
               },
+              entity: {
+                type: "string",
+                description: "Optional: Specific entity name to center the graph around"
+              },
               limit: {
                 type: "number",
                 description: "Max entities per type (default: 50)",
@@ -448,8 +456,24 @@ class MemoryServer {
           case "read_graph": {
             const mode = (request.params.arguments?.mode as 'smart' | 'entities' | 'relationships' | 'raw') || 'smart';
             const entityTypes = request.params.arguments?.entityTypes as string[] | undefined;
+            const entity = request.params.arguments?.entity as string | undefined;
             const limit = (request.params.arguments?.limit as number) || 50;
             
+            // Handle entity-specific graph
+            if (entity) {
+              const entityGraph = await this.graphManager.getEntitySpecificGraph(entity, mode, limit);
+              const responseText = JSON.stringify(entityGraph);
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: responseText,
+                  },
+                ],
+              };
+            }
+            
+            // Handle general graph (existing logic)
             const options: ScrollOptions = {
               mode,
               entityTypes,

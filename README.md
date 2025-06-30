@@ -3,8 +3,13 @@
 
 This MCP server provides a knowledge graph implementation with semantic search capabilities powered by Qdrant vector database. **Enhanced version** with direct Qdrant integration for Claude Code memory solution.
 
-## ✨ Latest Enhancements - v2.4.1 Semantic Scope Architecture
+## 🎯 Latest Enhancements - v2.7 Entity-Specific Graph Filtering
 
+- **🎯 Entity-Specific Filtering**: NEW `entity` parameter focuses on individual components (10-20 relations vs 300+)
+- **🧠 Smart Entity Analysis**: AI-powered summaries with connection stats and relationship breakdowns  
+- **🔧 4 Targeted Modes**: smart (AI overview), entities (connections), relationships (relations only), raw (complete)
+- **⚡ Laser-Focused Debugging**: Eliminate information overload with precise entity-centered queries
+- **🛡️ Error Handling**: Clear feedback for non-existent entities with helpful error messages
 - **🚀 Progressive Disclosure**: `search_similar` returns metadata-first for 90% faster queries
 - **🎯 Semantic Scope Implementation**: `get_implementation(entityName, scope?)` with contextual code retrieval
   - **`minimal`**: Just the entity implementation (default, backward compatible)
@@ -14,12 +19,8 @@ This MCP server provides a knowledge graph implementation with semantic search c
 - **⚡ Performance Optimized**: Configurable limits (20 logical, 30 dependencies) with smart deduplication
 - **🎯 Automatic Provider Detection**: Reads embedding provider from environment variables
 - **🚀 Voyage AI Integration**: Built-in support for voyage-3-lite with cost optimization
-- **🛡️ Backward Compatibility**: Seamlessly handles both v2.3 and v2.4 chunk formats
-- **🎯 Smart Filtering**: read_graph now provides intelligent, token-limited responses
-- **🔧 Multiple Modes**: smart/entities/relationships/raw modes for different use cases
-- **⚡ Priority Scoring**: Surfaces most important code first (public APIs, documented code)
+- **🛡️ Backward Compatibility**: Seamlessly handles both v2.3 and v2.4 chunk formats, plus general graph calls
 - **📊 Structured Responses**: Summary, API surface, dependencies, and file structure
-- **🛡️ Token Management**: Smart mode guarantees <25k tokens vs previous 393k overflow
 - **🔄 Direct Qdrant Integration**: Works seamlessly with claude-indexer direct writes
 - **📈 Large Collection Support**: Handles 2000+ vectors efficiently via scroll API
 
@@ -127,7 +128,7 @@ docker run -d \
 - `delete_entities`: Delete entities and their relations
 - `delete_observations`: Delete specific observations
 - `delete_relations`: Delete specific relations
-- `read_graph`: **Enhanced** - Get smart, filtered knowledge graph with token limits
+- `read_graph`: **Enhanced** - Get smart, filtered knowledge graph with NEW entity-specific filtering
 
 ### Progressive Disclosure Search (v2.4)
 - `search_similar`: **Enhanced** - Metadata-first search for 90% faster queries
@@ -203,27 +204,37 @@ When searching:
 ## Example Usage
 
 ```typescript
-// Enhanced read_graph with smart filtering (NEW)
+// Entity-specific graph filtering (NEW v2.7)
+const entityGraph = await client.callTool("read_graph", {
+  entity: "AuthService",      // Focus on specific entity
+  mode: "smart"              // AI summary of connections
+});
+// Returns: AI-powered summary with connection stats and relationship breakdown
+
+// Debug specific function relationships
+const relationshipGraph = await client.callTool("read_graph", {
+  entity: "process_login",
+  mode: "relationships"      // Only relations involving entity
+});
+// Returns: 10-20 focused relations instead of 300+ scattered ones
+
+// Find entities connected to specific component
+const connectionGraph = await client.callTool("read_graph", {
+  entity: "validate_token",
+  mode: "entities"          // Connected entities only
+});
+
+// General graph views (backward compatible)
 const smartGraph = await client.callTool("read_graph", {
   mode: "smart",           // AI-optimized view (default)
   limit: 20               // Max entities per type
 });
-// Returns: structured summary, API surface, dependencies under 25k tokens
 
 // Entity type filtering
 const classes = await client.callTool("read_graph", {
   mode: "entities",
   entityTypes: ["class", "function"],
   limit: 10
-});
-
-// Create entities
-await client.callTool("create_entities", {
-  entities: [{
-    name: "Project",
-    entityType: "Task",
-    observations: ["A new development project"]
-  }]
 });
 
 // Search similar concepts

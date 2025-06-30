@@ -37,8 +37,7 @@ interface ChunkPayload {
   entity_type: string;
   content: string;
   file_path?: string;
-  from?: string;
-  to?: string;
+  relation_target?: string;
   relation_type?: string;
 }
 
@@ -70,8 +69,8 @@ function isRelationChunk(payload: ChunkPayload): boolean {
   return (
     payload.type === "chunk" &&
     payload.chunk_type === "relation" &&
-    typeof payload.from === "string" &&
-    typeof payload.to === "string" &&
+    typeof payload.entity_name === "string" &&
+    typeof payload.relation_target === "string" &&
     typeof payload.relation_type === "string"
   );
 }
@@ -1035,5 +1034,197 @@ export class QdrantPersistence {
       .map(r => ({ from: r.from, to: r.to, type: r.relationType }));
 
     return { inheritance, keyUsages };
+  }
+
+  async getEntitySpecificGraph(entityName: string, mode: 'smart' | 'entities' | 'relationships' | 'raw' = 'smart', limit?: number): Promise<any> {
+    await this.connect();
+    if (!COLLECTION_NAME) {
+      throw new Error("COLLECTION_NAME environment variable is required");
+    }
+
+    // Step 1: Check if target entity exists
+    const targetEntityResults = await this.client.search(COLLECTION_NAME, {
+      vector: new Array(this.vectorSize).fill(0), // Dummy vector for filter-only search
+      limit: 1,
+      with_payload: true,
+      filter: {
+        must: [
+          { key: "entity_name", match: { value: entityName } },
+          { key: "chunk_type", match: { value: "metadata" } }
+        ]
+      }
+    });
+
+    if (targetEntityResults.length === 0) {
+      throw new Error(`Entity '${entityName}' not found`);
+    }
+
+    // Step 2: Find all relations involving this entity
+    const relatedRelations = await this.scrollRelationsForEntity(entityName);
+
+    // Step 3: Collect all related entity names
+    const relatedEntityNames = new Set<string>();
+    relatedEntityNames.add(entityName); // Include the target entity
+
+    relatedRelations.forEach(rel => {
+      relatedEntityNames.add(rel.from);
+      relatedEntityNames.add(rel.to);
+    });
+
+    // Step 4: Fetch entity details for all related entities
+    const entities = await this.fetchEntitiesByNames(Array.from(relatedEntityNames), limit);
+
+    // Step 5: Apply mode-specific formatting
+    switch (mode) {
+      case "smart":
+        return this.formatSmartEntityGraph(targetEntityResults[0], entities, relatedRelations);
+      case "entities":
+        return { entities, relations: [] };
+      case "relationships":
+        return { entities: [], relations: relatedRelations };
+      case "raw":
+        return { entities, relations: relatedRelations };
+      default:
+        return { entities, relations: relatedRelations };
+    }
+  }
+
+  private async scrollRelationsForEntity(entityName: string): Promise<Relation[]> {
+    const relations: Relation[] = [];
+    let offset: string | number | undefined = undefined;
+    const batchSize = 100;
+
+    do {
+      const scrollResult = await this.client.scroll(COLLECTION_NAME!, {
+        limit: batchSize,
+        offset,
+        with_payload: true,
+        with_vector: false,
+        filter: {
+          must: [
+            { key: "type", match: { value: "chunk" } },
+            { key: "chunk_type", match: { value: "relation" } },
+            {
+              should: [
+                { key: "entity_name", match: { value: entityName } },
+                { key: "relation_target", match: { value: entityName } }
+              ]
+            }
+          ]
+        }
+      });
+
+      for (const point of scrollResult.points) {
+        if (!point.payload) continue;
+        const payload = point.payload as unknown as ChunkPayload;
+
+        if (isRelationChunk(payload)) {
+          relations.push({
+            from: payload.entity_name!,
+            to: payload.relation_target!,
+            relationType: payload.relation_type!
+          });
+        }
+      }
+
+      offset = (typeof scrollResult.next_page_offset === 'string' || typeof scrollResult.next_page_offset === 'number') 
+        ? scrollResult.next_page_offset 
+        : undefined;
+    } while (offset !== null && offset !== undefined);
+
+    return relations;
+  }
+
+  private async fetchEntitiesByNames(names: string[], limit?: number): Promise<Entity[]> {
+    const entities: Entity[] = [];
+    const maxResults = limit || names.length;
+    
+    // Build OR filter for all entity names
+    const results = await this.client.search(COLLECTION_NAME!, {
+      vector: new Array(this.vectorSize).fill(0), // Dummy vector for filter-only search
+      limit: Math.min(maxResults, 1000), // Cap at reasonable limit
+      with_payload: true,
+      filter: {
+        must: [
+          { key: "chunk_type", match: { value: "metadata" } }
+        ],
+        should: names.map(name => ({
+          key: "entity_name",
+          match: { value: name }
+        }))
+      }
+    });
+
+    for (const result of results) {
+      if (!result.payload) continue;
+      const payload = result.payload as unknown as ChunkPayload;
+
+      if (isMetadataChunk(payload)) {
+        entities.push({
+          name: payload.entity_name,
+          entityType: payload.entity_type,
+          observations: [payload.content]
+        });
+      }
+    }
+
+    return entities;
+  }
+
+  private formatSmartEntityGraph(targetResult: any, relatedEntities: Entity[], relationships: Relation[]): any {
+    const targetEntity = {
+      name: targetResult.payload.entity_name,
+      type: targetResult.payload.entity_type,
+      file: targetResult.payload.file_path || 'unknown'
+    };
+
+    // Group entities by type
+    const entityGroups: Record<string, number> = {};
+    relatedEntities.forEach(entity => {
+      entityGroups[entity.entityType] = (entityGroups[entity.entityType] || 0) + 1;
+    });
+
+    // Count relationship directions
+    const incoming = relationships.filter(r => r.to === targetEntity.name).length;
+    const outgoing = relationships.filter(r => r.from === targetEntity.name).length;
+
+    // Summarize key relationships
+    const keyRelationships = this.summarizeKeyRelationships(relationships, targetEntity.name);
+
+    return {
+      summary: {
+        target: targetEntity,
+        stats: {
+          total_connections: relationships.length,
+          incoming,
+          outgoing,
+          entity_types: Object.entries(entityGroups).map(([type, count]) => ({
+            type,
+            count
+          }))
+        },
+        key_relationships: keyRelationships
+      },
+      entities: relatedEntities.slice(0, 10), // Limit for readability
+      relations: relationships.slice(0, 50) // Limit for token management
+    };
+  }
+
+  private summarizeKeyRelationships(relationships: Relation[], entityName: string): any {
+    const outgoing = relationships
+      .filter(r => r.from === entityName)
+      .reduce((acc, r) => {
+        acc[r.relationType] = (acc[r.relationType] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+    const incoming = relationships
+      .filter(r => r.to === entityName)
+      .reduce((acc, r) => {
+        acc[r.relationType] = (acc[r.relationType] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+    return { outgoing, incoming };
   }
 }
