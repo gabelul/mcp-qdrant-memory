@@ -148,10 +148,10 @@ class KnowledgeGraphManager {
     }
   }
 
-  async searchSimilar(query: string, limit: number = 50): Promise<SearchResult[]> {
+  async searchSimilar(query: string, entityTypes?: string[], limit: number = 50): Promise<SearchResult[]> {
     // Ensure limit is a positive number
     const validLimit = Math.max(1, Math.min(limit, 100)); // Cap at 100 results
-    return await this.qdrant.searchSimilar(query, validLimit);
+    return await this.qdrant.searchSimilar(query, entityTypes, validLimit);
   }
 
   async getImplementation(entityName: string, scope: 'minimal' | 'logical' | 'dependencies' = 'minimal'): Promise<SearchResult[]> {
@@ -361,6 +361,11 @@ class MemoryServer {
             type: "object",
             properties: {
               query: { type: "string" },
+              entityTypes: {
+                type: "array",
+                items: { type: "string" },
+                description: "Filter by entity types: class, function, file, documentation, debugging_pattern, etc."
+              },
               limit: { 
                 type: "number",
                 default: 50
@@ -508,6 +513,7 @@ class MemoryServer {
             const args = validateSearchSimilarRequest(request.params.arguments);
             const results = await this.graphManager.searchSimilar(
               args.query,
+              args.entityTypes,
               args.limit
             );
             return {

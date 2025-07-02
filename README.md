@@ -131,12 +131,18 @@ docker run -d \
 - `read_graph`: **Enhanced** - Get smart, filtered knowledge graph with NEW entity-specific filtering
 
 ### Progressive Disclosure Search (v2.4)
-- `search_similar`: **Enhanced** - Metadata-first search for 90% faster queries
+- `search_similar`: **Enhanced** - Metadata-first search for 90% faster queries with unified entity/chunk type filtering
   ```typescript
   interface SearchParams {
     query: string;           // Search query text
-    limit?: number;          // Max results (default: 10)
+    entityTypes?: string[];  // Unified filtering: entity types (class, function, documentation, text_chunk) + chunk types (metadata, implementation)
+    limit?: number;          // Max results (default: 50)
   }
+  
+  // Unified entityTypes parameter supports:
+  // Entity Types: ["class", "function", "documentation", "text_chunk"]
+  // Chunk Types: ["metadata", "implementation"]  
+  // Mixed Arrays: ["function", "metadata", "implementation"] (OR logic)
   ```
 
 - `get_implementation`: **ENHANCED** - Semantic scope implementation access (v2.4.1)
@@ -237,10 +243,31 @@ const classes = await client.callTool("read_graph", {
   limit: 10
 });
 
-// Search similar concepts
-const results = await client.callTool("search_similar", {
+// Unified entityTypes filtering - entity types only
+const entityResults = await client.callTool("search_similar", {
   query: "development tasks",
+  entityTypes: ["function", "class"], // Filter by specific entity types
   limit: 5
+});
+
+// Unified entityTypes filtering - chunk types only  
+const metadataResults = await client.callTool("search_similar", {
+  query: "authentication",
+  entityTypes: ["metadata"], // Fast metadata-only search
+  limit: 10
+});
+
+// Unified entityTypes filtering - mixed types (OR logic)
+const mixedResults = await client.callTool("search_similar", {
+  query: "authentication",
+  entityTypes: ["function", "metadata", "implementation"], // Returns functions OR metadata OR implementation chunks
+  limit: 10
+});
+
+// Search without filtering (returns all entity and chunk types)
+const allResults = await client.callTool("search_similar", {
+  query: "authentication",
+  limit: 10
 });
 ```
 

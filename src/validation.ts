@@ -34,6 +34,7 @@ export interface DeleteRelationsRequest {
 export interface SearchSimilarRequest {
   query: string;
   limit?: number;
+  entityTypes?: string[];
 }
 
 export interface GetImplementationRequest {
@@ -163,7 +164,7 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
     throw new McpError(ErrorCode.InvalidParams, "Invalid request format");
   }
 
-  const { query, limit } = args;
+  const { query, entityTypes, limit } = args;
   if (typeof query !== 'string') {
     throw new McpError(ErrorCode.InvalidParams, "Missing or invalid query string");
   }
@@ -172,7 +173,13 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
     throw new McpError(ErrorCode.InvalidParams, "Invalid limit value");
   }
 
-  return { query, limit };
+  if (entityTypes !== undefined) {
+    if (!Array.isArray(entityTypes) || !entityTypes.every(t => typeof t === 'string')) {
+      throw new McpError(ErrorCode.InvalidParams, "entityTypes must be array of strings");
+    }
+  }
+
+  return { query, entityTypes, limit };
 }
 
 export function validateGetImplementationRequest(args: unknown): GetImplementationRequest {

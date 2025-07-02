@@ -369,7 +369,7 @@ export class QdrantPersistence {
     });
   }
 
-  async searchSimilar(query: string, limit: number = 50) {
+  async searchSimilar(query: string, entityTypes?: string[], limit: number = 50) {
     await this.connect();
     if (!COLLECTION_NAME) {
       throw new Error("COLLECTION_NAME environment variable is required");
@@ -377,9 +377,51 @@ export class QdrantPersistence {
 
     const queryVector = await this.generateEmbedding(query);
 
-    // Search all chunk types to find the highest relevance match
-    // Progressive disclosure handled by separate get_implementation tool
-    const filter = undefined;
+    // Build filter based on entityTypes (supports both entity types and chunk types with OR logic)
+    let filter = undefined;
+    if (entityTypes && entityTypes.length > 0) {
+      // Separate entity types from chunk types
+      const knownChunkTypes = ["metadata", "implementation"];
+      const chunkTypes = entityTypes.filter(type => knownChunkTypes.includes(type));
+      const actualEntityTypes = entityTypes.filter(type => !knownChunkTypes.includes(type));
+      
+      const filterConditions = [];
+      
+      // Add entity_type filter if we have actual entity types
+      if (actualEntityTypes.length > 0) {
+        filterConditions.push({
+          key: "entity_type",
+          match: {
+            any: actualEntityTypes
+          }
+        });
+      }
+      
+      // Add chunk_type filter if we have chunk types
+      if (chunkTypes.length > 0) {
+        filterConditions.push({
+          key: "chunk_type",
+          match: {
+            any: chunkTypes
+          }
+        });
+      }
+      
+      // Build final filter structure with OR logic
+      if (filterConditions.length > 0) {
+        if (filterConditions.length === 1) {
+          // Single filter condition - use must
+          filter = {
+            must: filterConditions
+          };
+        } else {
+          // Multiple filter conditions - use should for OR logic
+          filter = {
+            should: filterConditions
+          };
+        }
+      }
+    }
 
     const results = await this.client.search(COLLECTION_NAME, {
       vector: queryVector,
@@ -797,12 +839,10 @@ export class QdrantPersistence {
     
     if (entityTypes && entityTypes.length > 0) {
       // Simple test filter - just metadata entities by type
-      filter.must.push({
-        must: [
-          { key: "chunk_type", match: { value: "metadata" } },
-          { key: "entity_type", match: { any: entityTypes } }
-        ]
-      });
+      filter.must.push(
+        { key: "chunk_type", match: { value: "metadata" } },
+        { key: "entity_type", match: { any: entityTypes } }
+      );
     }
 
     do {
