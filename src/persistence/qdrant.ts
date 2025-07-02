@@ -402,10 +402,18 @@ export class QdrantPersistence {
         const hasImplementation = payload.chunk_type === 'metadata' 
           ? await this._checkImplementationExists(entityName)
           : false;
+
+        // Boost code entities for better debugging/development workflow
+        let score = result.score;
+        if (payload.entity_type && ['function', 'class', 'method'].includes(payload.entity_type)) {
+          score *= 1.3; // 30% boost for code entities
+        } else if (payload.chunk_type === 'implementation') {
+          score *= 1.2; // 20% boost for implementation chunks
+        }
           
         validResults.push({
           type: 'chunk',
-          score: result.score,
+          score: score,
           data: {
             ...payload,
             entity_name: entityName, // Normalize field name
