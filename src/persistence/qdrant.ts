@@ -403,12 +403,21 @@ export class QdrantPersistence {
           ? await this._checkImplementationExists(entityName)
           : false;
 
-        // Boost code entities for better debugging/development workflow
+        // Enhanced scoring system for progressive disclosure and debugging workflow
         let score = result.score;
-        if (payload.entity_type && ['function', 'class', 'method'].includes(payload.entity_type)) {
-          score *= 1.3; // 30% boost for code entities
+        if (payload.chunk_type === 'metadata') {
+          score *= 1.4; // 40% boost for metadata chunks (progressive disclosure priority)
         } else if (payload.chunk_type === 'implementation') {
           score *= 1.2; // 20% boost for implementation chunks
+        } else if (payload.entity_type) {
+          // Research-validated entity type priorities for debugging workflow
+          const entityBoosts: Record<string, number> = {
+            'function': 1.3, 'class': 1.3, 'method': 1.3, // 30% - Core executable code
+            'interface': 1.15, 'type': 1.15,               // 15% - Contracts & types (IDD)
+            'const': 1.1, 'variable': 1.1,                // 10% - Configuration & state
+            'import': 1.05                                 // 5% - Dependencies
+          };
+          score *= entityBoosts[payload.entity_type] || 1.0;
         }
           
         validResults.push({
@@ -422,6 +431,9 @@ export class QdrantPersistence {
         });
       }
     }
+
+    // Sort by score (highest first) after applying boosts
+    validResults.sort((a, b) => b.score - a.score);
 
     return validResults;
   }
