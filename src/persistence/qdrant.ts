@@ -307,7 +307,11 @@ export class QdrantPersistence {
       entity.entityType
     }): ${entity.observations.join(". ")}`;
     const vector = await this.generateEmbedding(text);
-    const id = await this.hashString(entity.name);
+    
+    // Use consistent chunk ID format: {file_path}::{entity_name}::metadata
+    // For manual entities without file_path, use "manual" as file identifier
+    const idStr = `manual::${entity.name}::metadata`;
+    const id = await this.hashString(idStr);
 
     const payload = {
       type: "chunk",
@@ -337,14 +341,16 @@ export class QdrantPersistence {
 
     const text = `${relation.from} ${relation.relationType} ${relation.to}`;
     const vector = await this.generateEmbedding(text);
-    const id = await this.hashString(
-      `${relation.from}-${relation.relationType}-${relation.to}`
-    );
+    
+    // Use consistent chunk ID format for relations
+    const relationId = `${relation.from}-${relation.relationType}-${relation.to}`;
+    const idStr = `relation::${relationId}::relation`;
+    const id = await this.hashString(idStr);
 
     const payload = {
       type: "chunk",
       chunk_type: "relation", 
-      entity_name: `${relation.from}-${relation.relationType}-${relation.to}`,
+      entity_name: relationId,
       entity_type: "relation",
       content: `${relation.from} ${relation.relationType} ${relation.to}`,
       from: relation.from,
@@ -696,9 +702,18 @@ export class QdrantPersistence {
       throw new Error("COLLECTION_NAME environment variable is required");
     }
 
-    const id = await this.hashString(entityName);
+    // Delete ALL chunks with matching entity_name (metadata + implementation chunks)
     await this.client.delete(COLLECTION_NAME, {
-      points: [id],
+      filter: {
+        must: [
+          {
+            key: "entity_name",
+            match: {
+              value: entityName
+            }
+          }
+        ]
+      }
     });
   }
 
@@ -708,9 +723,11 @@ export class QdrantPersistence {
       throw new Error("COLLECTION_NAME environment variable is required");
     }
 
-    const id = await this.hashString(
-      `${relation.from}-${relation.relationType}-${relation.to}`
-    );
+    // Use consistent chunk ID format for relations
+    const relationId = `${relation.from}-${relation.relationType}-${relation.to}`;
+    const idStr = `relation::${relationId}::relation`;
+    const id = await this.hashString(idStr);
+    
     await this.client.delete(COLLECTION_NAME, {
       points: [id],
     });
