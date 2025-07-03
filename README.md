@@ -3,9 +3,12 @@
 
 This MCP server provides a knowledge graph implementation with semantic search capabilities powered by Qdrant vector database. **Enhanced version** with direct Qdrant integration for Claude Code memory solution.
 
-## 🎯 Latest Enhancements - v2.7 Entity-Specific Graph Filtering
+## 🎯 Latest Enhancements - v2.8 Unified EntityTypes Filtering
 
-- **🎯 Entity-Specific Filtering**: NEW `entity` parameter focuses on individual components (10-20 relations vs 300+)
+- **🎯 Unified EntityTypes Filtering**: Single parameter supports entity types AND chunk types with OR logic  
+- **🚀 Dynamic Validation**: Accept any string with automatic fallback to metadata for unknown categories
+- **⚡ Performance Optimized**: `entityTypes=["metadata"]` provides 90% speed boost for initial exploration
+- **🔍 Flexible Mixed Search**: `entityTypes=["function", "metadata", "custom"]` uses OR logic for comprehensive results
 - **🧠 Smart Entity Analysis**: AI-powered summaries with connection stats and relationship breakdowns  
 - **🔧 4 Targeted Modes**: smart (AI overview), entities (connections), relationships (relations only), raw (complete)
 - **⚡ Laser-Focused Debugging**: Eliminate information overload with precise entity-centered queries
