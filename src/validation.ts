@@ -177,6 +177,9 @@ export function validateSearchSimilarRequest(args: unknown): SearchSimilarReques
     if (!Array.isArray(entityTypes) || !entityTypes.every(t => typeof t === 'string')) {
       throw new McpError(ErrorCode.InvalidParams, "entityTypes must be array of strings");
     }
+    
+    // No validation on entityTypes - allow any string for dynamic manual memory categories
+    // The translation will happen in the search implementation
   }
 
   return { query, entityTypes, limit };

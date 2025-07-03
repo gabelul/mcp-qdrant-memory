@@ -369,6 +369,78 @@ export class QdrantPersistence {
     });
   }
 
+  /**
+   * Translate the simplified 6-category system to Qdrant filters
+   */
+  private translateCategories(categories: string[]): any {
+    const filters = [];
+    
+    // Auto-generated entity types from indexer
+    const AUTO_ENTITY_TYPES = [
+      'class', 'function', 'documentation', 'text_chunk', 'interface',
+      'json_file', 'css_file', 'html_file', 'yaml_file', 'json_content', 'chat'
+    ];
+    
+    for (const category of categories) {
+      switch(category) {
+        case 'metadata':
+          filters.push({ 
+            key: 'chunk_type', 
+            match: { value: 'metadata' }
+          });
+          break;
+          
+        case 'implementation':
+          filters.push({ 
+            key: 'chunk_type', 
+            match: { value: 'implementation' }
+          });
+          break;
+          
+        case 'function':
+          filters.push({ 
+            key: 'entity_type', 
+            match: { value: 'function' }
+          });
+          break;
+          
+        case 'class':
+          filters.push({ 
+            key: 'entity_type', 
+            match: { any: ['class', 'interface'] }
+          });
+          break;
+          
+        case 'documentation':
+          filters.push({ 
+            key: 'entity_type', 
+            match: { 
+              any: ['documentation', 'text_chunk', 'json_file', 'css_file', 
+                    'html_file', 'yaml_file', 'json_content', 'chat'] 
+            }
+          });
+          break;
+          
+        default:
+          // Unknown categories: fallback to metadata
+          filters.push({ 
+            key: 'chunk_type', 
+            match: { value: 'metadata' }
+          });
+          break;
+      }
+    }
+    
+    // Return appropriate filter structure
+    if (filters.length === 0) {
+      return undefined;
+    } else if (filters.length === 1) {
+      return { must: filters };
+    } else {
+      return { should: filters };
+    }
+  }
+
   async searchSimilar(query: string, entityTypes?: string[], limit: number = 50) {
     await this.connect();
     if (!COLLECTION_NAME) {
@@ -377,50 +449,10 @@ export class QdrantPersistence {
 
     const queryVector = await this.generateEmbedding(query);
 
-    // Build filter based on entityTypes (supports both entity types and chunk types with OR logic)
+    // NEW: Translate simplified categories to filters
     let filter = undefined;
     if (entityTypes && entityTypes.length > 0) {
-      // Separate entity types from chunk types
-      const knownChunkTypes = ["metadata", "implementation"];
-      const chunkTypes = entityTypes.filter(type => knownChunkTypes.includes(type));
-      const actualEntityTypes = entityTypes.filter(type => !knownChunkTypes.includes(type));
-      
-      const filterConditions = [];
-      
-      // Add entity_type filter if we have actual entity types
-      if (actualEntityTypes.length > 0) {
-        filterConditions.push({
-          key: "entity_type",
-          match: {
-            any: actualEntityTypes
-          }
-        });
-      }
-      
-      // Add chunk_type filter if we have chunk types
-      if (chunkTypes.length > 0) {
-        filterConditions.push({
-          key: "chunk_type",
-          match: {
-            any: chunkTypes
-          }
-        });
-      }
-      
-      // Build final filter structure with OR logic
-      if (filterConditions.length > 0) {
-        if (filterConditions.length === 1) {
-          // Single filter condition - use must
-          filter = {
-            must: filterConditions
-          };
-        } else {
-          // Multiple filter conditions - use should for OR logic
-          filter = {
-            should: filterConditions
-          };
-        }
-      }
+      filter = this.translateCategories(entityTypes);
     }
 
     const results = await this.client.search(COLLECTION_NAME, {
@@ -436,6 +468,7 @@ export class QdrantPersistence {
       if (!result.payload) continue;
 
       const payload = result.payload as unknown as any;
+      
 
       if (payload.chunk_type) {
         // Handle v2.4 chunk format only

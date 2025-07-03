@@ -363,8 +363,11 @@ class MemoryServer {
               query: { type: "string" },
               entityTypes: {
                 type: "array",
-                items: { type: "string" },
-                description: "Filter by entity types: class, function, file, documentation, debugging_pattern, etc."
+                items: { 
+                  type: "string",
+                  enum: ["metadata", "implementation", "function", "class", "documentation"]
+                },
+                description: "Filter by entity types: metadata (fast overview chunks only), implementation (detailed code chunks only), function (function entities - both types), class (class entities - both types), documentation (file/text entities - both types)"
               },
               limit: { 
                 type: "number",
