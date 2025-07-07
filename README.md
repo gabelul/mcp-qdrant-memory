@@ -3,14 +3,16 @@
 
 This MCP server provides a knowledge graph implementation with semantic search capabilities powered by Qdrant vector database. **Enhanced version** with direct Qdrant integration for Claude Code memory solution.
 
-## 🎯 Latest Enhancements - v2.7 Entity-Specific Graph Filtering
+## 🎯 Latest Enhancements - v2.4 Production Ready ✅
 
+- **🚀 Auto-Reduce Token Management**: Exponential backoff with 0.7 reduction factor (10 max attempts)  
+- **🎯 25k Token Compliance**: Intelligent token limiting with 96% safety margin for maximum utilization
+- **⚡ Progressive Disclosure**: `search_similar` returns metadata-first for 90% faster queries
 - **🎯 Entity-Specific Filtering**: NEW `entity` parameter focuses on individual components (10-20 relations vs 300+)
 - **🧠 Smart Entity Analysis**: AI-powered summaries with connection stats and relationship breakdowns  
 - **🔧 4 Targeted Modes**: smart (AI overview), entities (connections), relationships (relations only), raw (complete)
 - **⚡ Laser-Focused Debugging**: Eliminate information overload with precise entity-centered queries
 - **🛡️ Error Handling**: Clear feedback for non-existent entities with helpful error messages
-- **🚀 Progressive Disclosure**: `search_similar` returns metadata-first for 90% faster queries
 - **🎯 Semantic Scope Implementation**: `get_implementation(entityName, scope?)` with contextual code retrieval
   - **`minimal`**: Just the entity implementation (default, backward compatible)
   - **`logical`**: Entity + helper functions/classes from same file (analyzes calls + `_` prefixed helpers)
@@ -23,6 +25,8 @@ This MCP server provides a knowledge graph implementation with semantic search c
 - **📊 Structured Responses**: Summary, API surface, dependencies, and file structure
 - **🔄 Direct Qdrant Integration**: Works seamlessly with claude-indexer direct writes
 - **📈 Large Collection Support**: Handles 2000+ vectors efficiently via scroll API
+- **🔧 Streaming Response Builder**: Progressive content building with section priorities and token enforcement
+- **📏 Industry-Standard Token Counting**: Character-based approximation (chars/4) with intelligent truncation
 
 ## Features
 

@@ -510,6 +510,36 @@ export class StreamingResponseBuilder {
     });
     return Array.from(modules).slice(0, 10);
   }
+
+  /**
+   * Generic streaming response for any data type with token management
+   */
+  async buildGenericStreamingResponse<T>(
+    data: T[],
+    tokenLimit: number = TOKEN_CONFIG.DEFAULT_TOKEN_LIMIT
+  ): Promise<{ content: T[]; meta: any }> {
+    const budget = tokenCounter.createBudget(tokenLimit);
+    const result: T[] = [];
+    
+    for (const item of data) {
+      if (tokenCounter.fitsInBudget(budget, item)) {
+        result.push(item);
+        budget.used += tokenCounter.estimateTokensWithFormatting(item);
+        budget.remaining = budget.total - budget.used;
+      } else break;
+    }
+    
+    return {
+      content: result,
+      meta: {
+        tokenCount: budget.used,
+        tokenLimit: budget.total,
+        truncated: result.length < data.length,
+        resultsIncluded: result.length,
+        totalResults: data.length
+      }
+    };
+  }
 }
 
 // Export singleton instance

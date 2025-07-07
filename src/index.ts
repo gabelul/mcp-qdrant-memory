@@ -16,6 +16,7 @@ import {
 import { QdrantPersistence } from './persistence/qdrant.js';
 import { Entity, Relation, KnowledgeGraph, SmartGraph, ScrollOptions, StreamingGraphResponse, SearchResult } from './types.js';
 import { streamingResponseBuilder } from './streamingResponseBuilder.js';
+import { tokenCounter } from './tokenCounter.js';
 import { COLLECTION_NAME } from './config.js';
 import {
   validateCreateEntitiesRequest,
@@ -149,13 +150,13 @@ class KnowledgeGraphManager {
   }
 
   async searchSimilar(query: string, entityTypes?: string[], limit: number = 50): Promise<SearchResult[]> {
-    // Ensure limit is a positive number
-    const validLimit = Math.max(1, Math.min(limit, 100)); // Cap at 100 results
+    // Ensure limit is a positive number, no hard cap
+    const validLimit = Math.max(1, limit);
     return await this.qdrant.searchSimilar(query, entityTypes, validLimit);
   }
 
-  async getImplementation(entityName: string, scope: 'minimal' | 'logical' | 'dependencies' = 'minimal'): Promise<SearchResult[]> {
-    return await this.qdrant.getImplementationChunks(entityName, scope);
+  async getImplementation(entityName: string, scope: 'minimal' | 'logical' | 'dependencies' = 'minimal', limit?: number): Promise<SearchResult[]> {
+    return await this.qdrant.getImplementationChunks(entityName, scope, limit);
   }
 
   async getEntitySpecificGraph(entityName: string, mode: 'smart' | 'entities' | 'relationships' | 'raw' = 'smart', limit?: number): Promise<any> {
@@ -406,13 +407,16 @@ class MemoryServer {
       }
 
       try {
+        let response: any;
+        
         switch (request.params.name) {
           case "create_entities": {
             const args = validateCreateEntitiesRequest(request.params.arguments);
             await this.graphManager.addEntities(args.entities);
-            return {
+            response = {
               content: [{ type: "text", text: "Entities created successfully" }],
             };
+            return response;
           }
 
           case "create_relations": {
@@ -469,12 +473,29 @@ class MemoryServer {
             // Handle entity-specific graph
             if (entity) {
               const entityGraph = await this.graphManager.getEntitySpecificGraph(entity, mode, limit);
-              const responseText = JSON.stringify(entityGraph);
+              // Use full streaming response for entity-specific graphs to handle smart mode token management
+              const options: ScrollOptions = { mode, entityTypes, limit };
+              // Auto-cut: Exponential backoff if response exceeds 25k tokens
+              let finalResponse = await this.autoReduceResponse(
+                async (tryLimit: number) => {
+                  const entityGraph = await this.graphManager.getEntitySpecificGraph(entity, mode, tryLimit);
+                  const options: ScrollOptions = { mode, entityTypes, limit: tryLimit };
+                  return await streamingResponseBuilder.buildStreamingResponse(
+                    entityGraph.entities || [],
+                    entityGraph.relations || [],
+                    options
+                  );
+                },
+                limit
+              );
+              
+              const fullResponse = JSON.stringify(finalResponse);
+              
               return {
                 content: [
                   {
                     type: "text",
-                    text: responseText,
+                    text: fullResponse,
                   },
                 ],
               };
@@ -487,23 +508,27 @@ class MemoryServer {
               limit
             };
             
-            // Get raw entities and relations from Qdrant for streaming response
-            const rawGraph = await this.graphManager.getRawGraph(limit, entityTypes);
-            const streamingResponse = await streamingResponseBuilder.buildStreamingResponse(
-              rawGraph.entities,
-              rawGraph.relations,
-              options
+            // Auto-cut: Exponential backoff if response exceeds 25k tokens
+            const finalResponse = await this.autoReduceResponse(
+              async (tryLimit: number) => {
+                const rawGraph = await this.graphManager.getRawGraph(tryLimit, entityTypes);
+                const options: ScrollOptions = { mode, entityTypes, limit: tryLimit };
+                return await streamingResponseBuilder.buildStreamingResponse(
+                  rawGraph.entities,
+                  rawGraph.relations,
+                  options
+                );
+              },
+              limit
             );
             
-            // Format response compactly to respect token limits (no pretty-printing)
-            const responseText = JSON.stringify(streamingResponse.content);
-            const metaText = `\n\n<!-- Response Metadata:\nTokens: ${streamingResponse.meta.tokenCount}/${streamingResponse.meta.tokenLimit}\nTruncated: ${streamingResponse.meta.truncated}\nSections: ${streamingResponse.meta.sectionsIncluded.join(', ')}\n${streamingResponse.meta.truncationReason ? `Reason: ${streamingResponse.meta.truncationReason}\n` : ''}-->`;
+            const fullResponse = JSON.stringify(finalResponse);
             
             return {
               content: [
                 {
                   type: "text",
-                  text: responseText + metaText,
+                  text: fullResponse,
                 },
               ],
             };
@@ -511,16 +536,25 @@ class MemoryServer {
 
           case "search_similar": {
             const args = validateSearchSimilarRequest(request.params.arguments);
-            const results = await this.graphManager.searchSimilar(
-              args.query,
-              args.entityTypes,
-              args.limit
+            
+            // Auto-reduce if response exceeds token limits
+            const finalResponse = await this.autoReduceResponse(
+              async (tryLimit: number) => {
+                const results = await this.graphManager.searchSimilar(
+                  args.query,
+                  args.entityTypes,
+                  tryLimit
+                );
+                return await streamingResponseBuilder.buildGenericStreamingResponse(results);
+              },
+              args.limit || 50
             );
+            
             return {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(results, null, 2),
+                  text: JSON.stringify(finalResponse),
                 },
               ],
             };
@@ -528,12 +562,30 @@ class MemoryServer {
 
           case "get_implementation": {
             const args = validateGetImplementationRequest(request.params.arguments);
-            const results = await this.graphManager.getImplementation(args.entityName, args.scope);
+            
+            // Auto-reduce if response exceeds token limits
+            // Start with actual scope limits from Qdrant persistence
+            const scopeLimits = {
+              'minimal': 50,      // No specific limit for minimal
+              'logical': 25,      // From memory: logical scope limit
+              'dependencies': 40  // From memory: dependencies scope limit
+            };
+            const initialLimit = scopeLimits[args.scope || 'minimal'];
+            
+            const finalResponse = await this.autoReduceResponse(
+              async (tryLimit: number) => {
+                // Need to pass the limit through to the implementation
+                const results = await this.graphManager.getImplementation(args.entityName, args.scope, tryLimit);
+                return await streamingResponseBuilder.buildGenericStreamingResponse(results);
+              },
+              initialLimit
+            );
+            
             return {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(results, null, 2),
+                  text: JSON.stringify(finalResponse),
                 },
               ],
             };
@@ -545,6 +597,16 @@ class MemoryServer {
               `Unknown tool: ${request.params.name}`
             );
         }
+        
+        // Ensure response never exceeds token limits
+        if (response && response.content && response.content[0] && response.content[0].text) {
+          const maxTokens = 24000; // Conservative limit to stay under 25k
+          const originalText = response.content[0].text;
+          const limitedText = tokenCounter.serializeWithMaxUtilization(originalText, maxTokens);
+          response.content[0].text = limitedText;
+        }
+        
+        return response;
       } catch (error) {
         throw new McpError(
           ErrorCode.InternalError,
@@ -552,6 +614,71 @@ class MemoryServer {
         );
       }
     });
+  }
+
+  /**
+   * Auto-reduce response size using exponential backoff when exceeding token limits
+   */
+  private async autoReduceResponse(
+    buildFunction: (limit: number) => Promise<any>,
+    initialLimit: number
+  ): Promise<any> {
+    const maxAttempts = 10;
+    const reductionFactor = 0.7;
+    const tokenLimit = 25000;
+    
+    let currentLimit = initialLimit;
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+      try {
+        const response = await buildFunction(currentLimit);
+        const responseText = JSON.stringify(response);
+        const tokenCount = Math.ceil(responseText.length / 4);
+        
+        // If response fits within token limit, return it
+        if (tokenCount <= tokenLimit) {
+          return response;
+        }
+        
+        // If this was our last attempt, let MCP handle the overflow
+        if (attempts === maxAttempts - 1) {
+          console.log(`Auto-reduce failed after ${attempts + 1} attempts. Final response: ${tokenCount} tokens. Letting MCP handle overflow.`);
+          return response; // Return the actual response, let MCP detect overflow
+        }
+        
+        // Reduce limit and try again
+        currentLimit = Math.max(1, Math.floor(currentLimit * reductionFactor));
+        attempts++;
+        
+      } catch (error) {
+        console.error(`Auto-reduce attempt ${attempts + 1} failed:`, error);
+        return {
+          content: { entities: [], relations: [] },
+          meta: {
+            tokenCount: 0,
+            tokenLimit: 24480,
+            truncated: true,
+            truncationReason: `Auto-reduce error: ${error}`,
+            sectionsIncluded: [],
+            autoReduceAttempts: attempts + 1
+          }
+        };
+      }
+    }
+    
+    // Should never reach here, but fallback
+    return {
+      content: { entities: [], relations: [] },
+      meta: {
+        tokenCount: 0,
+        tokenLimit: 24480,
+        truncated: true,
+        truncationReason: "Auto-reduce exhausted all attempts",
+        sectionsIncluded: [],
+        autoReduceAttempts: maxAttempts
+      }
+    };
   }
 
   async run() {

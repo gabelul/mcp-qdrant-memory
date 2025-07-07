@@ -482,7 +482,8 @@ export class QdrantPersistence {
 
   async getImplementationChunks(
     entityName: string, 
-    scope: 'minimal' | 'logical' | 'dependencies' = 'minimal'
+    scope: 'minimal' | 'logical' | 'dependencies' = 'minimal',
+    limit?: number
   ): Promise<SearchResult[]> {
     await this.connect();
     if (!COLLECTION_NAME) {
@@ -498,11 +499,11 @@ export class QdrantPersistence {
     const metadata = this.extractSemanticMetadata(baseResults);
     
     if (scope === 'logical') {
-      return this.expandLogicalScope(baseResults, metadata);
+      return this.expandLogicalScope(baseResults, metadata, limit);
     }
     
     if (scope === 'dependencies') {
-      return this.expandDependencyScope(baseResults, metadata);
+      return this.expandDependencyScope(baseResults, metadata, limit);
     }
     
     return baseResults;
@@ -601,7 +602,8 @@ export class QdrantPersistence {
 
   private async expandLogicalScope(
     baseResults: SearchResult[], 
-    metadata: SemanticMetadata
+    metadata: SemanticMetadata,
+    limit?: number
   ): Promise<SearchResult[]> {
     if (!metadata.file_path) {
       return baseResults;
@@ -619,7 +621,7 @@ export class QdrantPersistence {
       // Also search for private helper functions (starting with _) in the same file
       const helperResults = await this.client.search(COLLECTION_NAME!, {
         vector: new Array(this.vectorSize).fill(0),
-        limit: 25,
+        limit: limit || 25,
         with_payload: true,
         filter: {
           must: [
@@ -661,7 +663,8 @@ export class QdrantPersistence {
 
   private async expandDependencyScope(
     baseResults: SearchResult[], 
-    metadata: SemanticMetadata
+    metadata: SemanticMetadata,
+    limit?: number
   ): Promise<SearchResult[]> {
     const imports = metadata.imports_used || [];
     const calls = metadata.calls || [];
@@ -674,7 +677,7 @@ export class QdrantPersistence {
       // Query for imported dependencies
       const dependencyResults = await this.client.search(COLLECTION_NAME!, {
         vector: new Array(this.vectorSize).fill(0),
-        limit: 40,
+        limit: limit || 40,
         with_payload: true,
         filter: {
           must: [

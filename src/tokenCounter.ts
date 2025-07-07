@@ -190,6 +190,51 @@ export class TokenCounter {
       isNearLimit: utilizationPercent > 85
     };
   }
+
+  /**
+   * Serialize content with maximum token utilization
+   * Dynamically cuts content to fit within token limit while maximizing usage
+   */
+  serializeWithMaxUtilization(content: any, tokenLimit: number = 25000): string {
+    // Handle string input (already serialized)
+    if (typeof content === 'string') {
+      const currentTokens = this.estimateTokens(content);
+      if (currentTokens <= tokenLimit * 0.98) return content;
+      
+      // Truncate string to fit token limit
+      const maxChars = Math.floor(tokenLimit * 0.98 * this.config.CHARS_PER_TOKEN);
+      return content.substring(0, maxChars) + '\n...\n"truncated": true\n}';
+    }
+
+    let serialized = JSON.stringify(content, null, 2);
+    let currentTokens = this.estimateTokens(serialized);
+    
+    if (currentTokens <= tokenLimit * 0.98) return serialized;
+
+    // Calculate reduction ratio based on overflow
+    const reductionRatio = (tokenLimit * 0.98) / currentTokens;
+    
+    // Recursively apply proportional cuts to all arrays
+    const workingContent = this.reduceContentRecursively(content, reductionRatio);
+    
+    return JSON.stringify(workingContent, null, 2);
+  }
+
+  private reduceContentRecursively(obj: any, ratio: number): any {
+    if (Array.isArray(obj)) {
+      const targetSize = Math.floor(obj.length * ratio);
+      return obj.slice(0, Math.max(1, targetSize)).map(item => 
+        this.reduceContentRecursively(item, ratio)
+      );
+    } else if (obj && typeof obj === 'object') {
+      const result: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        result[key] = this.reduceContentRecursively(value, ratio);
+      }
+      return result;
+    }
+    return obj;
+  }
 }
 
 // Export singleton instance
