@@ -39,6 +39,7 @@ interface ChunkPayload {
   file_path?: string;
   relation_target?: string;
   relation_type?: string;
+  created_at?: string;
 }
 
 interface QdrantCollectionConfig {
@@ -319,7 +320,8 @@ export class QdrantPersistence {
       entity_name: entity.name,
       entity_type: entity.entityType,
       content: entity.observations.join(". "),
-      file_path: undefined // Could be extracted from observations if needed
+      file_path: undefined, // Could be extracted from observations if needed
+      created_at: new Date().toISOString()
     };
 
     await this.client.upsert(COLLECTION_NAME, {
@@ -355,7 +357,8 @@ export class QdrantPersistence {
       content: `${relation.from} ${relation.relationType} ${relation.to}`,
       from: relation.from,
       to: relation.to,
-      relation_type: relation.relationType
+      relation_type: relation.relationType,
+      created_at: new Date().toISOString()
     };
 
     await this.client.upsert(COLLECTION_NAME, {
