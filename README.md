@@ -126,11 +126,11 @@ docker run -d \
 ## Tools
 
 ### Entity Management
-- `create_entities`: Create multiple new entities
-- `create_relations`: Create relations between entities
-- `add_observations`: Add observations to entities
+- `create_entities`: Create multiple new entities with observations array
+- `create_relations`: Create relations between entities  
+- `add_observations`: Add observation strings to existing entities (stored as string array)
 - `delete_entities`: Delete entities and their relations
-- `delete_observations`: Delete specific observations
+- `delete_observations`: Delete specific observations from entities
 - `delete_relations`: Delete specific relations
 - `read_graph`: **Enhanced** - Get smart, filtered knowledge graph with NEW entity-specific filtering
 
@@ -210,6 +210,36 @@ When searching:
 2. Qdrant performs similarity search
 3. Results include both entities and relations
 4. Results are ranked by semantic similarity
+
+## Observations Array Format
+
+**Entity Storage Structure:**
+```typescript
+interface Entity {
+  name: string;
+  entityType: string; 
+  observations: string[];  // Array of observation strings
+}
+
+// Example in Qdrant payload:
+{
+  type: "chunk",
+  chunk_type: "metadata",
+  entity_name: "AuthService",
+  entity_type: "class", 
+  observations: [
+    "Handles user authentication",
+    "Manages JWT tokens",
+    "Integrates with OAuth providers"
+  ],
+  content: "Handles user authentication. Manages JWT tokens. Integrates with OAuth providers"
+}
+```
+
+**Usage in All Modes:**
+- **search_similar**: Returns `observations` field in results
+- **read_graph (entities/raw)**: Shows full `observations` array
+- **read_graph (smart)**: Includes observations in API surface functions/classes
 
 ## Example Usage
 

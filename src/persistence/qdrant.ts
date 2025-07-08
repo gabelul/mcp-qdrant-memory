@@ -319,7 +319,8 @@ export class QdrantPersistence {
       chunk_type: "metadata",
       entity_name: entity.name,
       entity_type: entity.entityType,
-      content: entity.observations.join(". "),
+      observations: entity.observations,  // Store as array for MCP compatibility
+      content: entity.observations.join(". "),  // Keep joined text for embedding
       file_path: undefined, // Could be extracted from observations if needed
       created_at: new Date().toISOString()
     };
@@ -471,7 +472,8 @@ export class QdrantPersistence {
           data: {
             ...payload,
             entity_name: entityName, // Normalize field name
-            has_implementation: hasImplementation
+            has_implementation: hasImplementation,
+            observations: payload.observations // Expose observations array if present
           }
         });
       }
@@ -875,7 +877,7 @@ export class QdrantPersistence {
               entities.push({
                 name: entityName,
                 entityType: payload.entity_type,
-                observations: [payload.content]
+                observations: (payload as any).observations || []
               });
               entityCount++;
             }
@@ -1072,7 +1074,8 @@ export class QdrantPersistence {
           line: lineObs ? parseInt(lineObs.replace('Line:', '').trim()) : 0,
           docstring: docObs ? docObs.replace(/.*docstring[:\s]*/, '').trim() : undefined,
           methods,
-          inherits: inherits.length > 0 ? inherits : undefined
+          inherits: inherits.length > 0 ? inherits : undefined,
+          observations: cls.observations.length > 0 ? cls.observations : undefined
         };
       });
 
@@ -1090,7 +1093,8 @@ export class QdrantPersistence {
           file: fileObs ? fileObs.replace('Defined in:', '').trim() : '',
           line: lineObs ? parseInt(lineObs.replace('Line:', '').trim()) : 0,
           signature: sigObs ? sigObs.trim() : undefined,
-          docstring: docObs ? docObs.replace(/.*docstring[:\s]*/, '').trim() : undefined
+          docstring: docObs ? docObs.replace(/.*docstring[:\s]*/, '').trim() : undefined,
+          observations: fn.observations.length > 0 ? fn.observations : undefined
         };
       });
 
@@ -1262,7 +1266,7 @@ export class QdrantPersistence {
         entities.push({
           name: payload.entity_name,
           entityType: payload.entity_type,
-          observations: [payload.content]
+          observations: (payload as any).observations || []
         });
       }
     }

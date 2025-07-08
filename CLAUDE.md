@@ -20,6 +20,7 @@ This enhanced version of the MCP-Qdrant-Memory server provides enterprise-grade 
 - ✅ **Entity-Specific Graph Filtering**: Focus on individual components (10-20 relations vs 300+) - TESTED
 - ✅ **Streaming Response Builder**: Progressive content building with section priorities - VERIFIED
 - ✅ **Industry-Standard Token Counting**: Character-based approximation (chars/4) with intelligent truncation - TESTED
+- ✅ **Observations Array Support**: Complete observations format across all MCP tools - IMPLEMENTED & TESTED
 
 ### 🎯 Smart Filtering & Token Management (v2.0)
 - **Smart Mode**: AI-optimized responses that guarantee <25k tokens (vs 393k overflow)
@@ -38,6 +39,79 @@ This enhanced version of the MCP-Qdrant-Memory server provides enterprise-grade 
 **Original Issue**: The standard MCP server maintained dual storage (JSON + Qdrant) but `read_graph` only read from JSON files. When using claude-indexer's direct Qdrant integration, the JSON files remained empty while all data existed in Qdrant, causing `read_graph` to return empty results.
 
 **Solution**: Enhanced `read_graph` to read directly from Qdrant database using scroll API, with automatic fallback to JSON for backward compatibility.
+
+## Observations Array Format - Complete Implementation ✅
+
+**Full observations support across all MCP operations:**
+
+### Entity Storage Structure:
+```typescript
+interface Entity {
+  name: string;
+  entityType: string;
+  observations: string[];  // Array of observation strings for semantic discovery
+}
+
+// Qdrant storage format:
+{
+  type: "chunk",
+  chunk_type: "metadata",
+  entity_name: "AuthService", 
+  entity_type: "class",
+  observations: ["Handles user authentication", "Manages JWT tokens", "Integrates with OAuth providers"],
+  content: "Handles user authentication. Manages JWT tokens. Integrates with OAuth providers"
+}
+```
+
+### Observations in All MCP Tools:
+
+**✅ search_similar Results:**
+- Now includes `observations` field in search results
+- Enables semantic discovery by behavior ("find JWT validation functions") 
+- Manual entities show complete observations array
+- Auto-indexed entities show empty array if no observations
+
+**✅ read_graph Results:**
+- **entities mode**: Shows full `observations` array per entity
+- **smart mode**: Includes observations in API surface (functions/classes with observations)
+- **raw mode**: Complete entity data with observations array
+- **relationships mode**: N/A (relations don't have observations)
+
+**✅ get_implementation Results:**
+- Implementation chunks don't contain observations (only metadata chunks do)
+- Use in combination with read_graph for complete context
+
+### Usage Examples:
+```typescript
+// Create entity with observations
+await create_entities({
+  entities: [{
+    name: "AuthService",
+    entityType: "class",
+    observations: [
+      "Handles user authentication",
+      "Manages JWT tokens",
+      "Integrates with OAuth providers"
+    ]
+  }]
+});
+
+// Add more observations to existing entity
+await add_observations({
+  observations: [{
+    entityName: "AuthService", 
+    contents: ["Supports multi-factor authentication", "Logs security events"]
+  }]
+});
+
+// Search by behavior (semantic discovery)
+const results = await search_similar("JWT token validation");
+// Returns: entities with observations containing JWT-related behavior
+
+// Get entity with full observations
+const graph = await read_graph({ entity: "AuthService", mode: "raw" });
+// Returns: { entities: [{ name: "AuthService", observations: [...] }] }
+```
 
 ## Key Enhancements
 
