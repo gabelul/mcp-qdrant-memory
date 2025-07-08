@@ -80,7 +80,7 @@ class KnowledgeGraphManager {
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
     }
-    entity.observations.push(...observations);
+    (entity.observations || []).push(...observations);
     await this.qdrant.persistEntity(entity);
     // await this.save(); // Removed: JSON file writing disabled
   }
@@ -111,7 +111,7 @@ class KnowledgeGraphManager {
     if (!entity) {
       throw new Error(`Entity not found: ${entityName}`);
     }
-    entity.observations = entity.observations.filter((o: string) => !observations.includes(o));
+    entity.observations = (entity.observations || []).filter((o: string) => !observations.includes(o));
     await this.qdrant.persistEntity(entity);
     // await this.save(); // Removed: JSON file writing disabled
   }

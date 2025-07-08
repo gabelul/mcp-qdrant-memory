@@ -426,9 +426,9 @@ export class StreamingResponseBuilder {
       .filter(e => e.entityType === 'class' && !e.name.startsWith('_'))
       .slice(0, limit)
       .map(cls => {
-        const fileObs = cls.observations.find(o => o.includes('Defined in:'));
-        const lineObs = cls.observations.find(o => o.includes('Line:'));
-        const docObs = cls.observations.find(o => o.includes('docstring') || o.includes('Description'));
+        const fileObs = (cls.observations || []).find(o => o.includes('Defined in:'));
+        const lineObs = (cls.observations || []).find(o => o.includes('Line:'));
+        const docObs = (cls.observations || []).find(o => o.includes('docstring') || o.includes('Description'));
         
         return {
           name: cls.name,
@@ -444,10 +444,10 @@ export class StreamingResponseBuilder {
       .filter(e => (e.entityType === 'function' || e.entityType === 'method') && !e.name.startsWith('_'))
       .slice(0, limit)
       .map(fn => {
-        const fileObs = fn.observations.find(o => o.includes('Defined in:'));
-        const lineObs = fn.observations.find(o => o.includes('Line:'));
-        const sigObs = fn.observations.find(o => o.includes('Signature:') || o.includes('('));
-        const docObs = fn.observations.find(o => o.includes('docstring') || o.includes('Description'));
+        const fileObs = (fn.observations || []).find(o => o.includes('Defined in:'));
+        const lineObs = (fn.observations || []).find(o => o.includes('Line:'));
+        const sigObs = (fn.observations || []).find(o => o.includes('Signature:') || o.includes('('));
+        const docObs = (fn.observations || []).find(o => o.includes('docstring') || o.includes('Description'));
 
         return {
           name: fn.name,

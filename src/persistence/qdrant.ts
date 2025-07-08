@@ -306,7 +306,7 @@ export class QdrantPersistence {
 
     const text = `${entity.name} (${
       entity.entityType
-    }): ${entity.observations.join(". ")}`;
+    }): ${(entity.observations || []).join(". ")}`;
     const vector = await this.generateEmbedding(text);
     
     // Use consistent chunk ID format: {file_path}::{entity_name}::metadata
@@ -319,8 +319,8 @@ export class QdrantPersistence {
       chunk_type: "metadata",
       entity_name: entity.name,
       entity_type: entity.entityType,
-      observations: entity.observations,  // Store as array for MCP compatibility
-      content: entity.observations.join(". "),  // Keep joined text for embedding
+      observations: entity.observations || [],  // Store as array for MCP compatibility
+      content: (entity.observations || []).join(". "),  // Keep joined text for embedding
       file_path: undefined, // Could be extracted from observations if needed
       created_at: new Date().toISOString()
     };
@@ -473,7 +473,7 @@ export class QdrantPersistence {
             ...payload,
             entity_name: entityName, // Normalize field name
             has_implementation: hasImplementation,
-            observations: payload.observations // Expose observations array if present
+            observations: payload.observations || [] // Expose observations array with empty fallback
           }
         });
       }
@@ -997,8 +997,8 @@ export class QdrantPersistence {
       if (b.name && typeof b.name === 'string' && !b.name.startsWith('_')) scoreB += 5;
 
       // Has documentation bonus
-      const aHasDoc = a.observations.some(obs => obs.includes('docstring') || obs.includes('Description'));
-      const bHasDoc = b.observations.some(obs => obs.includes('docstring') || obs.includes('Description'));
+      const aHasDoc = (a.observations || []).some(obs => obs.includes('docstring') || obs.includes('Description'));
+      const bHasDoc = (b.observations || []).some(obs => obs.includes('docstring') || obs.includes('Description'));
       if (aHasDoc) scoreA += 10;
       if (bHasDoc) scoreB += 10;
 
@@ -1013,7 +1013,7 @@ export class QdrantPersistence {
   private _extractKeyModules(entities: Entity[]): string[] {
     const modules = new Set<string>();
     entities.forEach(entity => {
-      const obs = entity.observations.find(o => o.includes('Defined in:') || o.includes('file_path'));
+      const obs = (entity.observations || []).find(o => o.includes('Defined in:') || o.includes('file_path'));
       if (obs) {
         const pathMatch = obs.match(/[\/\\]([^\/\\]+)[\/\\][^\/\\]+\.py/);
         if (pathMatch) {
@@ -1029,11 +1029,11 @@ export class QdrantPersistence {
     
     entities.forEach(entity => {
       if (entity.entityType === 'file' || entity.entityType === 'directory') {
-        const pathObs = entity.observations.find(o => o.includes('file_path') || o.includes('Defined in:'));
+        const pathObs = (entity.observations || []).find(o => o.includes('file_path') || o.includes('Defined in:'));
         if (pathObs) {
           const path = entity.name;
           const entityCount = entities.filter(e => 
-            e.observations.some(obs => obs.includes(path))
+            (e.observations || []).some(obs => obs.includes(path))
           ).length;
 
           structure[path] = {
@@ -1052,14 +1052,14 @@ export class QdrantPersistence {
       .filter(e => e.entityType === 'class' && e.name && !e.name.startsWith('_'))
       .slice(0, limit)
       .map(cls => {
-        const fileObs = cls.observations.find(o => o.includes('Defined in:'));
-        const lineObs = cls.observations.find(o => o.includes('Line:'));
-        const docObs = cls.observations.find(o => o.includes('docstring') || o.includes('Description'));
+        const fileObs = (cls.observations || []).find(o => o.includes('Defined in:'));
+        const lineObs = (cls.observations || []).find(o => o.includes('Line:'));
+        const docObs = (cls.observations || []).find(o => o.includes('docstring') || o.includes('Description'));
         
         // Find methods of this class
         const methods = entities
           .filter(e => e.entityType === 'method' || e.entityType === 'function')
-          .filter(e => e.observations.some(obs => obs.includes(cls.name)))
+          .filter(e => (e.observations || []).some(obs => obs.includes(cls.name)))
           .map(m => m.name)
           .slice(0, 10); // Limit methods shown
 
@@ -1075,7 +1075,7 @@ export class QdrantPersistence {
           docstring: docObs ? docObs.replace(/.*docstring[:\s]*/, '').trim() : undefined,
           methods,
           inherits: inherits.length > 0 ? inherits : undefined,
-          observations: cls.observations.length > 0 ? cls.observations : undefined
+          observations: (cls.observations || []).length > 0 ? cls.observations : undefined
         };
       });
 
@@ -1083,10 +1083,10 @@ export class QdrantPersistence {
       .filter(e => (e.entityType === 'function' || e.entityType === 'method') && e.name && !e.name.startsWith('_'))
       .slice(0, limit)
       .map(fn => {
-        const fileObs = fn.observations.find(o => o.includes('Defined in:'));
-        const lineObs = fn.observations.find(o => o.includes('Line:'));
-        const sigObs = fn.observations.find(o => o.includes('Signature:') || o.includes('('));
-        const docObs = fn.observations.find(o => o.includes('docstring') || o.includes('Description'));
+        const fileObs = (fn.observations || []).find(o => o.includes('Defined in:'));
+        const lineObs = (fn.observations || []).find(o => o.includes('Line:'));
+        const sigObs = (fn.observations || []).find(o => o.includes('Signature:') || o.includes('('));
+        const docObs = (fn.observations || []).find(o => o.includes('docstring') || o.includes('Description'));
 
         return {
           name: fn.name,
@@ -1094,7 +1094,7 @@ export class QdrantPersistence {
           line: lineObs ? parseInt(lineObs.replace('Line:', '').trim()) : 0,
           signature: sigObs ? sigObs.trim() : undefined,
           docstring: docObs ? docObs.replace(/.*docstring[:\s]*/, '').trim() : undefined,
-          observations: fn.observations.length > 0 ? fn.observations : undefined
+          observations: (fn.observations || []).length > 0 ? fn.observations : undefined
         };
       });
 
