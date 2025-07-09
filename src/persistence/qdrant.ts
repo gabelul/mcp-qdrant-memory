@@ -5,7 +5,8 @@ import {
   QDRANT_URL,
   COLLECTION_NAME,
   OPENAI_API_KEY,
-  QDRANT_API_KEY
+  QDRANT_API_KEY,
+  OPENAI_BASE_URL,
 } from "../config.js";
 import { Entity, Relation, SmartGraph, ScrollOptions, KnowledgeGraph, SearchResult, SemanticMetadata } from "../types.js";
 
@@ -99,6 +100,7 @@ export class QdrantPersistence {
 
     this.openai = new OpenAI({
       apiKey: OPENAI_API_KEY,
+      baseURL: OPENAI_BASE_URL,
     });
   }
 
