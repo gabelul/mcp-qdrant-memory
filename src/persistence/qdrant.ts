@@ -194,7 +194,16 @@ export class QdrantPersistence {
     if (provider === 'voyage') {
       return 512; // Voyage embeddings
     }
-    return 1536; // Default to OpenAI embeddings
+    
+    // Check specific OpenAI embedding model
+    const model = process.env.EMBEDDING_MODEL?.toLowerCase();
+    if (model === 'text-embedding-3-large') {
+      return 3072; // text-embedding-3-large
+    } else if (model === 'text-embedding-3-small') {
+      return 1536; // text-embedding-3-small
+    }
+    
+    return 1536; // Default to OpenAI ada-002 embeddings
   }
 
   private updateEmbeddingModel(vectorSize: number) {
@@ -207,6 +216,8 @@ export class QdrantPersistence {
       // Note: Would need to implement Voyage embedding generation
     } else if (vectorSize === 1536) {
       console.error("Detected OpenAI embeddings (1536-dim)");
+    } else if (vectorSize === 3072) {
+      console.error("Detected OpenAI text-embedding-3-large (3072-dim)");
     } else {
       console.error(`Unknown vector size: ${vectorSize}, using OpenAI embeddings`);
     }
