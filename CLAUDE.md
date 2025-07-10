@@ -209,52 +209,42 @@ async scrollAll(): Promise<{ entities: Entity[], relations: Relation[] }> {
 
 ### Claude Code Integration
 
-```typescript
-// Progressive Disclosure (v2.4) - 90% faster metadata-first search
-const metadataResults = await mcp_memory_project_search_similar("authentication functions");
-// Returns: Lightweight metadata chunks for fast browsing (default behavior)
+```bash
+# Progressive Disclosure (v2.4) - 90% faster metadata-first search
+# Note: Replace 'memory_project' with your actual server name
+mcp__memory_project__search_similar("authentication functions", entityTypes=["metadata"])
+# Returns: Lightweight metadata chunks for fast browsing (90% speed boost)
 
-// Enhanced Semantic Scope Implementation Access (v2.4.1)
-// Minimal scope (default - current behavior)
-const minimal = await mcp_memory_project_get_implementation("AuthenticationService");
-// Returns: Just the AuthenticationService implementation
+# Enhanced Semantic Scope Implementation Access (v2.4.1)
+# Minimal scope (default - current behavior)
+mcp__memory_project__get_implementation("AuthenticationService")
+# Returns: Just the AuthenticationService implementation
 
-// Logical scope (same-file helpers)
-const logical = await mcp_memory_project_get_implementation("AuthenticationService", "logical");
-// Returns: AuthenticationService + helper functions/classes in same file
+# Logical scope (same-file helpers)
+mcp__memory_project__get_implementation("AuthenticationService", "logical")
+# Returns: AuthenticationService + helper functions/classes in same file
 
-// Dependencies scope (imports and function calls)
-const dependencies = await mcp_memory_project_get_implementation("AuthenticationService", "dependencies");
-// Returns: AuthenticationService + imported modules and called functions
+# Dependencies scope (imports and function calls)
+mcp__memory_project__get_implementation("AuthenticationService", "dependencies")
+# Returns: AuthenticationService + imported modules and called functions
 
-// Smart Mode (v2.0) - AI-optimized, token-limited responses
-const smartGraph = await mcp_memory_project_read_graph({ 
-  mode: "smart", 
-  limit: 20 
-});
-// Returns: Structured summary + API surface + dependencies <25k tokens
+# Smart Mode (v2.0) - AI-optimized, token-limited responses
+mcp__memory_project__read_graph(mode="smart", limit=20)
+# Returns: Structured summary + API surface + dependencies <25k tokens
 
-// Entity Type Filtering
-const classes = await mcp_memory_project_read_graph({ 
-  mode: "entities",
-  entityTypes: ["class", "function"], 
-  limit: 10 
-});
+# Entity Type Filtering  
+mcp__memory_project__read_graph(mode="entities", entityTypes=["class", "function"], limit=10)
 
-// Relationship Focus
-const connections = await mcp_memory_project_read_graph({ 
-  mode: "relationships" 
-});
+# Relationship Focus
+mcp__memory_project__read_graph(mode="relationships")
 
-// Raw Mode (Previous behavior, may exceed token limits)
-const fullGraph = await mcp_memory_project_read_graph({ 
-  mode: "raw" 
-});
+# Raw Mode (Previous behavior, may exceed token limits)
+mcp__memory_project__read_graph(mode="raw")
 
-// Traditional semantic search now uses progressive disclosure
-const searchResults = await mcp_memory_project_search_similar("authentication functions");
-// Returns: Metadata chunks for fast browsing
-// Use get_implementation(entityName, scope) for detailed code when needed
+# Traditional semantic search now uses progressive disclosure
+mcp__memory_project__search_similar("authentication functions")
+# Returns: Metadata chunks for fast browsing
+# Use get_implementation(entityName, scope) for detailed code when needed
 
 ### Semantic Scope Parameters (v2.4.1)
 
