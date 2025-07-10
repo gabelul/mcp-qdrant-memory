@@ -335,7 +335,7 @@ No changes required to existing Claude Code MCP configuration:
 ```json
 {
   "mcpServers": {
-    "memory-project-memory": {
+    "memory-project": {
       "command": "node",
       "args": ["/path/to/mcp-qdrant-memory/dist/index.js"],
       "env": {
@@ -443,13 +443,13 @@ async scrollAll(): Promise<{ entities: Entity[], relations: Relation[] }> {
 
 ```bash
 # Test enhanced read_graph
-curl -X POST "http://localhost:6333/collections/memory-project/points/scroll" \
+curl -X POST "http://localhost:6333/collections/your-collection/points/scroll" \
   -H "api-key: my_secret_key" \
   -H "Content-Type: application/json" \
   -d '{"limit": 10, "with_payload": true}'
 
 # Verify MCP read_graph returns data
-# In Claude Code: mcp__memory-project-memory__read_graph()
+# In Claude Code: mcp__your_server_name__read_graph()
 ```
 
 ### Expected Results
