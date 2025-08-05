@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import dotenv from 'dotenv';
-dotenv.config();
+// @allow-duplicate: Configuration now loaded in config.ts for proper initialization order
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";

@@ -16,7 +16,10 @@
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
     "prepare": "npm run build",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "setup-config": "node scripts/setup-config.js",
+    "config": "node scripts/setup-config.js",
+    "test-config": "npm run build && node scripts/test-config.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.1",
